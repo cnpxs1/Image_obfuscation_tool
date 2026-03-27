@@ -1,0 +1,3871 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片混淆工具</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <!-- Viewer.js CSS 智能加载 | 许可证：MIT License（详见页面底部「开源许可证」入口）-->
+    <!-- 第一级：bootcdn CSS -->
+    <link id="viewer-css" href="https://cdn.bootcdn.net/ajax/libs/viewerjs/1.11.7/viewer.min.css" rel="stylesheet" onload="if(window.viewerResources){window.viewerResources.cssLoaded=true; window.viewerResources.currentCDN='bootcdn'}" onerror="loadCDNFallback('css', 'bootcdn')">
+    <!--
+    图片混淆工具 - 基于希尔伯特曲线的图片混淆算法
+    功能：支持图片的混淆、解混淆、还原操作，保持像素空间相关性
+    特点：支持批量处理、拖拽上传、多种格式保存
+    -->
+    <style>
+        /* 全局样式 */
+        body {
+            margin: 0;
+            padding: 1rem;
+            font-family: Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+
+        /* 主要内容区域 */
+        .main-content {
+            /* 已移除无效的 transform 样式 */
+        }
+
+        /* 移动端适配 */
+        @media screen and (max-width: 768px) {
+            .main-content {
+                /* 移动端无需特殊处理 */
+            }
+        }
+
+        /* 通用按钮样式 */
+        .normal_button {
+            min-width: 4rem;
+            height: 2rem;
+            line-height: 2rem;
+            font-size: 1rem;
+            padding: 0 0.5rem;
+            margin: 0.3rem;
+            border: 0;
+            border-radius: 6px;
+            display: inline-block;
+            position: relative;
+            vertical-align: middle;
+            cursor: pointer;
+        }
+
+        /* 隐藏的文件输入按钮 */
+        .ipt_btn {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        /* 拖放区域样式 */
+        .drop-zone {
+            margin: 1rem auto;
+            padding: 2rem;
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            text-align: center;
+            max-width: 600px;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+
+        .drop-zone.drag-over {
+            border-color: #0091ff;
+            background-color: rgba(0, 132, 255, 0.1);
+        }
+
+        /* 图片列表网格布局 */
+        .image-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+            max-width: 1200px;
+            margin: 2rem auto;
+        }
+
+        /* 单个图片项样式 */
+        .image-item {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            background: #f9f9f9;
+            position: relative;
+        }
+
+        .image-item.selected {
+            border-color: #0091ff;
+            background-color: rgba(0, 132, 255, 0.1);
+        }
+
+        /* 缩略图容器 */
+        .thumbnail-container {
+            position: relative;
+            height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border-radius: 4px;
+            background: #f5f5f5;
+            cursor: pointer;
+        }
+
+        /* 图片预览样式 */
+        .image-preview {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 4px;
+        }
+
+        /* 文本截断样式 - 使用更兼容的方式 */
+        .text-multiline {
+            line-height: 1.4em;
+            height: 2.8em; /* 固定高度为2行的高度 */
+            min-height: 2.8em; /* 最小高度为2行的高度 */
+            overflow: hidden;
+            text-align: center;
+            word-wrap: break-word;
+            width: 100%;
+            box-sizing: border-box;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+
+        /* 图片信息显示 */
+        .image-info {
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: #666;
+            text-align: center;
+            min-height: 3.5rem; /* 为两行文本预留空间 */
+            overflow-wrap: break-word; /* 确保长单词能换行 */
+            word-wrap: break-word; /* 兼容性支持 */
+            word-break: break-word; /* 用于中文等语言 */
+        }
+
+        /* 图片操作按钮区域 */
+        .image-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+            margin-top: 0.5rem;
+            justify-content: center;
+        }
+
+        /* 操作按钮组 - 保证内部按钮不换行 */
+        .action-group {
+            display: flex;
+            gap: 0.3rem;
+            flex-wrap: nowrap;
+            width: calc(180px + 0.6rem); /* 3个按钮宽度(60px*3) + 2个间隙(0.3rem*2) */
+        }
+
+        /* 删除和保存按钮平均分配空间 */
+        .action-group .action-btn {
+            flex: 1;
+            min-width: 0;
+        }
+
+        /* 操作按钮样式 */
+        .action-btn {
+            padding: 0.2rem 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            font-size: 0.8rem;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .action-btn:hover {
+            background: #f0f0f0;
+        }
+
+        /* 删除按钮特殊样式 */
+        .delete-btn {
+            background: #ff4444;
+            color: white;
+            border-color: #ff4444;
+        }
+
+        .delete-btn:hover {
+            background: #cc0000;
+        }
+
+        /* 导出按钮特殊样式 */
+        .export-btn {
+            background: #4CAF50;
+            color: white;
+            border-color: #4CAF50;
+        }
+
+        .export-btn:hover {
+            background: #45a049;
+        }
+
+        /* 状态徽章样式 */
+        .status-badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            margin-top: 0.3rem;
+            border: 1px solid transparent; /* 默认透明边框 */
+        }
+
+        .status-original {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-color: #1976d2; /* 边框颜色与字体颜色一致 */
+        }
+
+        .status-encrypted {
+            background: #fce4ec;
+            color: #c2185b;
+            border-color: #c2185b; /* 边框颜色与字体颜色一致 */
+        }
+
+        .status-decrypted {
+            background: #e8f5e8;
+            color: #388e3c;
+            border-color: #388e3c; /* 边框颜色与字体颜色一致 */
+        }
+
+        /* 处理中遮罩层 */
+        .processing-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            z-index: 2;
+        }
+
+        /* 控制按钮区域 */
+        .controls-section {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 0.5rem;
+            margin: 1rem 0;
+        }
+
+        /* 选择复选框 */
+        .select-checkbox {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            z-index: 3;
+        }
+
+        /* 批量处理状态显示 */
+        .batch-status {
+            text-align: center;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        /* 加载动画 */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #0091ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        /* 旋转动画 */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 进度条样式 */
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #f0f0f0;
+            border-radius: 2px;
+            margin-top: 0.5rem;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #eb3678, #fb773c);
+            transition: width 0.3s ease;
+        }
+
+        /* 图片计数器 */
+        .image-counter {
+            text-align: center;
+            margin: 0.5rem 0;
+            color: #666;
+        }
+
+        /* 空状态提示 */
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: #999;
+            font-style: italic;
+            grid-column: 1 / -1;
+        }
+
+        /* 文件大小显示 */
+        .file-size {
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        /* 图片信息行 */
+        .image-info-row {
+            display: flex;
+            justify-content: center;
+            font-size: 0.9rem;
+            color: #666;
+            margin: 0.2rem 0;
+            align-items: center;
+            text-align: center;
+        }
+
+        .image-info-row span {
+            display: inline-block;
+            min-width: 0;
+            flex: 0 0 auto;
+        }
+
+        .image-info-row span.separator {
+            margin: 0 0.3rem;
+            display: inline-block;
+        }
+
+        /* 预览占位符 */
+        .preview-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ccc;
+            font-size: 0.9rem;
+        }
+
+        /* 错误日志面板 */
+        .error-log-panel {
+            background-color: #ffe6e6;
+            border: 1px solid #ffcccc;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+
+        .error-log-item {
+            padding: 5px 0;
+            border-bottom: 1px solid #ffdddd;
+            font-family: monospace;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: flex-start;  /* 对齐到顶部 */
+        }
+
+        .error-log-item:last-child {
+            border-bottom: none;
+        }
+
+        .error-timestamp {
+            color: #666;
+            font-size: 0.8rem;
+            margin-right: 8px;
+            flex: 0 0 auto;
+            min-width: 80px;  /* 时间戳最小宽度 */
+            max-width: 20%;   /* 限制最大宽度百分比 */
+            word-break: break-word;  /* 允许换行 */
+            white-space: normal;     /* 允许自动换行 */
+        }
+        
+        .error-file-name {
+            font-weight: bold;
+            color: #d00;
+            flex: 0 0 auto;
+            min-width: 100px;  /* 文件名最小宽度 */
+            max-width: 30%;    /* 限制最大宽度百分比 */
+            word-break: break-word;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;     /* 单行显示，超出省略 */
+        }
+        
+        .error-reason {
+            color: #a00;
+            flex: 1 1 auto;
+            word-break: break-word;
+            min-width: 0;  /* 防止 flex 溢出 */
+        }
+        
+        /* 移动端错误日志适配 */
+        @media screen and (max-width: 768px) {
+            .error-log-item {
+                flex-wrap: wrap;  /* 允许换行 */
+            }
+        
+            .error-timestamp {
+                min-width: 100%;  /* 占满整行 */
+                max-width: 100%;
+                margin-bottom: 4px;
+            }
+        
+            .error-file-name {
+                min-width: 100%;  /* 占满整行 */
+                max-width: 100%;
+                margin-bottom: 4px;
+                white-space: normal;  /* 允许换行 */
+            }
+        
+            .error-reason {
+                min-width: 100%;  /* 占满整行 */
+            }
+        }
+    </style>
+    <!-- Viewer.js JavaScript 智能加载 -->
+    <script>
+        // Viewer.js 资源加载状态
+        window.viewerResources = {
+            cssLoaded: false,
+            jsLoaded: false,
+            localFallback: false,
+            promptShown: false,  // 标记是否已显示过提示
+            currentCDN: null,    // 当前使用的CDN
+            cssTimeout: null,    // CSS加载超时定时器
+            jsTimeout: null      // JS加载超时定时器
+        };
+        
+        // 统一的 Viewer.js 加载 Promise
+        window.viewerLoadPromise = null;
+        
+        // 获取 Viewer.js 加载 Promise
+        function getViewerLoadPromise() {
+            if (window.viewerLoadPromise) {
+                return window.viewerLoadPromise;
+            }
+            
+            window.viewerLoadPromise = new Promise((resolve, reject) => {
+                // 如果已经加载完成，直接 resolve
+                if (window.viewerResources.jsLoaded && window.viewerResources.cssLoaded) {
+                    resolve();
+                    return;
+                }
+                
+                // 检查是否已完全失败
+                if (window.viewerResources.localFallback) {
+                    reject(new Error('Viewer.js 资源加载失败'));
+                    return;
+                }
+                
+                // 监听加载状态变化
+                let undefinedViewerCount = 0; // 连续未定义计数器
+                const MAX_UNDEFINED_ATTEMPTS = 5; // 最大连续未定义次数
+                
+                const checkLoadStatus = () => {
+                    // 优先检查是否已完全失败
+                    if (window.viewerResources.localFallback) {
+                        reject(new Error('Viewer.js 资源加载失败'));
+                        return true;
+                    }
+                    
+                    if (window.viewerResources.jsLoaded && window.viewerResources.cssLoaded) {
+                        // 额外验证 Viewer 构造函数是否真正可用
+                        if (window.hasOwnProperty('Viewer') && window.Viewer) {
+                            console.log('Viewer.js 资源加载完成且 Viewer 构造函数可用');
+                            resolve();
+                            return true;
+                        } else {
+                            undefinedViewerCount++;
+                            console.warn(`资源标记为已加载但 Viewer 构造函数不可用 (${undefinedViewerCount}/${MAX_UNDEFINED_ATTEMPTS})`);
+                            
+                            // 如果连续多次未定义，主动reject
+                            if (undefinedViewerCount >= MAX_UNDEFINED_ATTEMPTS) {
+                                console.error('Viewer 构造函数连续未定义，主动终止加载');
+                                reject(new Error('Viewer 构造函数无法加载'));
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                };
+                
+                // 立即检查一次
+                if (checkLoadStatus()) return;
+                
+                // 设置定期检查
+                const interval = setInterval(() => {
+                    if (checkLoadStatus()) {
+                        clearInterval(interval);
+                    }
+                }, 100);
+                
+                // 设置超时
+                setTimeout(() => {
+                    clearInterval(interval);
+                    if (!window.viewerResources.jsLoaded || !window.viewerResources.cssLoaded) {
+                        console.error('Viewer.js 加载超时');
+                        reject(new Error('Viewer.js 加载超时'));
+                    }
+                }, 5000); // 缩短至5秒
+            });
+            
+            return window.viewerLoadPromise;
+        }
+        
+        // CDN降级加载函数
+        function loadCDNFallback(resourceType, failedCDN) {
+            console.log(`${failedCDN} ${resourceType} 加载失败，尝试降级到下一个CDN`);
+            
+            if (resourceType === 'css') {
+                // 清除CSS超时定时器
+                if (window.viewerResources.cssTimeout) {
+                    clearTimeout(window.viewerResources.cssTimeout);
+                    window.viewerResources.cssTimeout = null;
+                }
+                
+                if (failedCDN === 'bootcdn') {
+                    // 从bootcdn降级到cdnjs - 动态创建链接
+                    console.log('尝试加载 cdnjs CSS');
+                    const cdnjsCss = document.createElement('link');
+                    cdnjsCss.id = 'viewer-css-cdnjs';
+                    cdnjsCss.rel = 'stylesheet';
+                    cdnjsCss.href = 'https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.7/viewer.min.css';
+                    cdnjsCss.onload = () => {
+                        if(window.viewerResources) {
+                            window.viewerResources.cssLoaded = true; 
+                            window.viewerResources.currentCDN = 'cdnjs';
+                            console.log('cdnjs CSS 加载成功');
+                        }
+                    };
+                    cdnjsCss.onerror = () => {
+                        console.log('cdnjs CSS 加载失败，尝试本地资源');
+                        loadLocalViewerCss();
+                    };
+                    document.head.appendChild(cdnjsCss);
+                    
+                    // 设置超时检测
+                    window.viewerResources.cssTimeout = setTimeout(() => {
+                        if (!window.viewerResources.cssLoaded) {
+                            console.log('cdnjs CSS 加载超时，尝试本地资源');
+                            loadLocalViewerCss();
+                        }
+                    }, 3000);
+                } else {
+                    // cdnjs也失败了，加载本地资源
+                    loadLocalViewerCss();
+                }
+            } else if (resourceType === 'js') {
+                // 清除JS超时定时器
+                if (window.viewerResources.jsTimeout) {
+                    clearTimeout(window.viewerResources.jsTimeout);
+                    window.viewerResources.jsTimeout = null;
+                }
+                
+                if (failedCDN === 'bootcdn') {
+                    // 从bootcdn降级到cdnjs
+                    console.log('尝试加载 cdnjs JS');
+                    loadCDNJSViewerJs();
+                } else {
+                    // cdnjs也失败了，加载本地资源
+                    loadLocalViewerJs();
+                }
+            }
+        }
+        
+        // 加载cdnjs的JS资源
+        function loadCDNJSViewerJs() {
+            if (window.viewerResources.localFallback) return;
+            
+            console.log('尝试加载 cdnjs Viewer.js JS');
+            const cdnjsScript = document.createElement('script');
+            cdnjsScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.7/viewer.min.js';
+            cdnjsScript.onload = () => {
+                window.viewerResources.jsLoaded = true;
+                window.viewerResources.currentCDN = 'cdnjs';
+                console.log('cdnjs Viewer.js JS 加载成功');
+                // 清除超时定时器
+                if (window.viewerResources.jsTimeout) {
+                    clearTimeout(window.viewerResources.jsTimeout);
+                    window.viewerResources.jsTimeout = null;
+                }
+            };
+            cdnjsScript.onerror = () => {
+                console.log('cdnjs Viewer.js JS 加载失败');
+                loadLocalViewerJs();
+            };
+            document.head.appendChild(cdnjsScript);
+            
+            // 设置超时检测
+            window.viewerResources.jsTimeout = setTimeout(() => {
+                if (!window.viewerResources.jsLoaded) {
+                    console.log('cdnjs JS 加载超时，尝试本地资源');
+                    loadLocalViewerJs();
+                }
+            }, 3000);
+        }
+        
+        // 加载本地 CSS 资源 | 许可证：MIT License（详见页面底部「开源许可证」入口）
+        function loadLocalViewerCss() {
+            if (window.viewerResources.localFallback) return;
+            
+            console.log('CDN 加载失败，尝试加载本地 Viewer.js CSS');
+            const localCss = document.createElement('link');
+            localCss.rel = 'stylesheet';
+            localCss.href = './assets/viewerjs/viewer.min.css';
+            localCss.onload = () => {
+                window.viewerResources.cssLoaded = true;
+                window.viewerResources.currentCDN = 'local';
+                console.log('本地 Viewer.js CSS 加载成功');
+            };
+            localCss.onerror = () => {
+                console.error('本地 Viewer.js CSS 加载失败');
+                // CSS和JS都失败时，启用基础查看器模式
+                window.viewerResources.localFallback = true;
+                console.log('Viewer.js CSS资源完全不可用，启用基础图片查看器模式');
+                
+                // 首次完全失败时显示提示
+                if (!window.viewerResources.promptShown) {
+                    window.viewerResources.promptShown = true;
+                    setTimeout(() => {
+                        alert('\u274C Viewer.js 资源加载失败\n\n系统将使用基础图片查看器为您展示图片。\n如需完整功能，请检查网络连接或本地资源后刷新页面。');
+                    }, 100);
+                }
+            };
+            document.head.appendChild(localCss);
+        }
+        
+        // 加载本地 JavaScript | 许可证：MIT License（详见页面底部「开源许可证」入口）
+        function loadLocalViewerJs() {
+            if (window.viewerResources.localFallback) return;
+            
+            console.log('CDN 加载失败，尝试加载本地 Viewer.js JS');
+            
+            const localJs = document.createElement('script');
+            localJs.src = './assets/viewerjs/viewer.min.js';
+            localJs.onload = () => {
+                window.viewerResources.jsLoaded = true;
+                window.viewerResources.currentCDN = 'local';
+                console.log('本地 Viewer.js JS 加载成功');
+                // 清除JS超时定时器
+                if (window.viewerResources.jsTimeout) {
+                    clearTimeout(window.viewerResources.jsTimeout);
+                    window.viewerResources.jsTimeout = null;
+                }
+            };
+            localJs.onerror = () => {
+                console.error('本地 Viewer.js JS 加载失败');
+                // JS失败时也启用基础查看器模式
+                window.viewerResources.localFallback = true;
+                console.log('Viewer.js JS资源完全不可用，启用基础图片查看器模式');
+                
+                // 首次完全失败时显示提示
+                if (!window.viewerResources.promptShown) {
+                    window.viewerResources.promptShown = true;
+                    setTimeout(() => {
+                        alert('\u274C Viewer.js 资源加载失败\n\n系统将使用基础图片查看器为您展示图片。\n如需完整功能，请检查网络连接或本地资源后刷新页面。');
+                    }, 100);
+                }
+            };
+            document.head.appendChild(localJs);
+        }
+        
+        // 基础图片查看器 - 当所有高级查看器都失效时的兜底方案
+        function showBasicImageViewer(imageData) {
+            console.log('启动基础图片查看器');
+            
+            // 清理可能存在的旧实例
+            const existingViewer = document.querySelector('[data-basic-viewer]');
+            if (existingViewer) {
+                existingViewer.remove();
+            }
+            
+            // 创建基础查看器容器
+            const viewerContainer = document.createElement('div');
+            viewerContainer.setAttribute('data-basic-viewer', 'true');
+            viewerContainer.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: rgba(0, 0, 0, 0.9);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10000;
+                cursor: zoom-out;
+            `;
+            
+            // 创建图片容器
+            const imgContainer = document.createElement('div');
+            imgContainer.style.cssText = `
+                position: relative;
+                max-width: 90vw;
+                max-height: 90vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            `;
+            
+            // 创建图片元素
+            const img = document.createElement('img');
+            img.src = imageData.blobUrl || imageData.url;
+            img.alt = escapeHtml(imageData.originalName);
+            img.style.cssText = `
+                max-width: 100%;
+                max-height: 100%;
+                object-fit: contain;
+            `;
+            
+            // 添加加载状态
+            const loadingIndicator = document.createElement('div');
+            loadingIndicator.textContent = '图片加载中...';
+            loadingIndicator.style.cssText = `
+                position: absolute;
+                color: white;
+                font-size: 16px;
+                background: rgba(0, 0, 0, 0.7);
+                padding: 10px 20px;
+                border-radius: 4px;
+                display: block;
+            `;
+            
+            imgContainer.appendChild(loadingIndicator);
+            imgContainer.appendChild(img);
+            viewerContainer.appendChild(imgContainer);
+            
+            // 添加关闭按钮（使用Viewer.css样式）
+            const closeBtn = document.createElement('button');
+            closeBtn.innerHTML = '×';
+            closeBtn.style.cssText = `
+                position: absolute;
+                right: 20px;
+                top: 20px;
+                width: 40px;
+                height: 40px;
+                background-color: rgba(0, 0, 0, 0.5);
+                border: none;
+                border-radius: 50%;
+                color: white;
+                font-size: 24px;
+                font-weight: normal;
+                line-height: 1;
+                cursor: pointer;
+                transition: background-color 0.15s;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10001;
+            `;
+            
+            closeBtn.onmouseenter = () => {
+                closeBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+            };
+            
+            closeBtn.onmouseleave = () => {
+                closeBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+            };
+            
+            viewerContainer.appendChild(closeBtn);
+            
+            // 不显示图片信息和操作提示
+            
+            // 禁用页面滚动
+            document.body.style.overflow = 'hidden';
+            
+            // 添加到页面
+            document.body.appendChild(viewerContainer);
+            
+            // 图片加载完成处理
+            img.onload = () => {
+                loadingIndicator.style.display = 'none';
+                console.log('基础查看器：图片加载完成');
+            };
+            
+            img.onerror = () => {
+                loadingIndicator.textContent = '图片加载失败';
+                loadingIndicator.style.color = '#ff6b6b';
+                console.error('基础查看器：图片加载失败');
+            };
+            
+            // 关闭查看器的函数
+            function closeBasicViewer() {
+                // 清理通过addEventListener添加的事件监听器
+                cleanupEventListeners();
+                
+                // 清理全局事件监听器
+                document.removeEventListener('keydown', escHandler);
+                
+                // 移除查看器容器
+                if (viewerContainer.parentNode) {
+                    viewerContainer.parentNode.removeChild(viewerContainer);
+                }
+                
+                // 重新启用页面滚动
+                document.body.style.overflow = '';
+                
+                // 清理图片资源
+                if (img) {
+                    img.onload = null;
+                    img.onerror = null;
+                    img.onclick = null;
+                }
+                
+                // 清理按钮事件
+                if (closeBtn) {
+                    closeBtn.onclick = null;
+                    closeBtn.onkeydown = null;
+                    closeBtn.onmouseenter = null;
+                    closeBtn.onmouseleave = null;
+                }
+                
+                console.log('基础查看器已关闭并清理资源');
+            }
+            
+            // 绑定关闭事件
+            viewerContainer.onclick = closeBasicViewer;
+            
+            // 确保关闭按钮事件正确绑定
+            const clickHandler = (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                closeBasicViewer();
+            };
+            
+            const keydownHandler = (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    closeBasicViewer();
+                }
+            };
+            
+            closeBtn.addEventListener('click', clickHandler);
+            closeBtn.addEventListener('keydown', keydownHandler);
+            
+            // 在关闭函数中添加对应的移除操作
+            const cleanupEventListeners = () => {
+                closeBtn.removeEventListener('click', clickHandler);
+                closeBtn.removeEventListener('keydown', keydownHandler);
+            };
+            
+            // 确保按钮可获得焦点
+            closeBtn.tabIndex = 0;
+            
+            // ESC 键关闭
+            const escHandler = (e) => {
+                if (e.key === 'Escape') {
+                    closeBasicViewer();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
+            
+            // 防止事件冒泡到容器
+            img.onclick = (e) => e.stopPropagation();
+            imgContainer.onclick = (e) => e.stopPropagation();
+            
+            console.log('基础图片查看器启动成功');
+        }
+        
+        // 检查 Viewer.js 是否已加载
+        function checkViewerLoaded() {
+            // 检查 CSS 是否加载成功
+            const bootcdnCss = document.getElementById('viewer-css');
+            const cdnjsCss = document.getElementById('viewer-css-cdnjs');
+            
+            // 检查bootcdn或cdnjs是否加载成功
+            if ((bootcdnCss && bootcdnCss.sheet) || (cdnjsCss && cdnjsCss.sheet)) {
+                window.viewerResources.cssLoaded = true;
+            }
+            
+            // 检查 JS 是否加载成功（通过字符串属性访问避免未定义变量）
+            if (window.hasOwnProperty('Viewer') && window.Viewer) {
+                window.viewerResources.jsLoaded = true;
+            }
+        }
+        
+        // 页面加载完成后检查资源状态并设置超时检测
+        document.addEventListener('DOMContentLoaded', function() {
+            // 使用统一的Promise加载机制，移除独立超时定时器
+            
+            // 延迟检查资源加载状态
+            setTimeout(checkViewerLoaded, 1000);
+        });
+    </script>
+    <!-- Viewer.js JavaScript 优先级加载 -->
+    <!-- 第一级：bootcdn -->
+    <script id="viewer-js-bootcdn" src="https://cdn.bootcdn.net/ajax/libs/viewerjs/1.11.7/viewer.min.js" onload="if(window.viewerResources){window.viewerResources.jsLoaded=true; window.viewerResources.currentCDN='bootcdn'}" onerror="loadCDNFallback('js', 'bootcdn')"></script>
+</head>
+<body>
+<div class="main-content" style="text-align: center;">
+    <h1>图片混淆工具</h1>
+    <div id="description-text" style="display: inline-block; max-width: 500px; margin: 0 auto;">
+        基于希尔伯特曲线的图片混淆。混淆算法保持像素的空间相关性，混淆图被压缩仍能保持色彩。
+    </div>
+
+    <div class="controls-section">
+        <span class="normal_button" style="background-color: #ffbb00;color:#ffffff;">
+            添加图片<input type="file" accept="image/*" id="add-images" class="ipt_btn" multiple />
+        </span>
+        <button id="clear-all" class="normal_button" style="background-color: #ff1100;color:#fff;">清空列表</button>
+    </div>
+
+    <div class="drop-zone" id="dropZone">
+        <p>拖拽图片文件到这里，或点击选择文件</p>
+        <p style="font-size: 0.9rem; color: #666;">支持多个文件批量处理</p>
+    </div>
+
+    <div class="controls-section">
+        <button id="encrypt-btn" class="normal_button" style="background-color: #7928c1;color:#fff;">混淆</button>
+        <button id="decrypt-btn" class="normal_button" style="background-color: #eb3678;color:#fff;">解混淆</button>
+        <button id="restore-btn" class="normal_button" style="background-color: #fb773c;color:#fff;">还原</button>
+        <label for="save-format-select" class="normal_button" style="background-color: #4CAF50;color:#fff;display:inline-flex;align-items:center;justify-content:center;height:2rem;font-size:1rem;padding:0 0.5rem;margin:0.3rem;border:0;border-radius:6px;cursor:pointer;">保存格式:
+            <select id="save-format-select" style="margin-left:0.3rem;background-color:white;color:#333;height:1.5rem;border:1px solid #ccc;border-radius:4px;padding:0 0.2rem;font-size:0.9rem;cursor:pointer;">
+                <option value="png">PNG</option>
+                <option value="jpg">JPG</option>
+                <option value="bmp">BMP</option>
+                <option value="webp">WebP</option>
+            </select>
+        </label>
+        <button id="save-format-btn" class="normal_button" style="background-color: #4caf50;color:#fff;">保存所选</button>
+        <button id="select-all" class="normal_button" style="background-color: #0091ff;color:#fff;">全选</button>
+        <button id="clear-selection" class="normal_button" style="background-color: #666;color:#fff;">清空选择</button>
+    </div>
+
+    <div class="batch-status" id="batchStatus"></div>
+
+    <div class="image-counter" id="imageCounter">当前共 0 张图片</div>
+
+    <div class="image-list" id="imageList">
+        <div class="empty-state" id="emptyState"></div>
+    </div>
+
+    <!-- 错误日志面板 -->
+    <div class="error-log-panel" id="errorLogPanel" style="display:none; margin: 20px auto; padding: 15px; border: 1px solid #ffcccc; background-color: #ffe6e6; border-radius: 8px; max-width: 1200px;">
+        <h3 style="margin-top: 0; color: #d00; text-align: center;">错误日志</h3>
+        <div id="errorLogContent" style="max-height: 200px; overflow-y: auto;"></div>
+        <button id="clearErrorLog" class="normal_button" style="background-color: #ff1100; color: #fff; margin-top: 10px; display: block; margin-left: auto; margin-right: auto;">清空日志</button>
+    </div>
+</div>
+
+
+<script>
+    // =============================================
+    // 安全函数
+    // =============================================
+    
+    /**
+     * HTML 转义函数，防止 XSS 攻击
+     * @param {string} str - 需要转义的字符串
+     * @returns {string} 转义后的安全字符串
+     */
+    function escapeHtml(str) {
+        if (typeof str !== 'string') return String(str);
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#x27;')
+            .replace(/\//g, '&#x2F;');
+    }
+    
+    /**
+     * WebP支持检测结果缓存
+     * @type {Promise<boolean>|null}
+     */
+    let webpSupportCache = null;
+    
+    /**
+     * 检测浏览器是否支持WebP格式（带缓存优化）
+     * @returns {Promise<boolean>} 是否支持WebP
+     * 
+     * 优化：首次检测后缓存结果，避免重复创建Canvas检测
+     */
+    function isWebPSupported() {
+        // 如果已有缓存结果，直接返回
+        if (webpSupportCache !== null) {
+            return webpSupportCache;
+        }
+        
+        // 首次检测并缓存结果
+        webpSupportCache = new Promise((resolve) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1;
+            canvas.height = 1;
+            try {
+                canvas.toBlob((blob) => {
+                    const supported = blob !== null;
+                    console.log(`WebP 支持检测: ${supported ? '支持' : '不支持'}`);
+                    resolve(supported);
+                }, 'image/webp');
+            } catch (e) {
+                console.log('WebP 支持检测失败:', e);
+                resolve(false);
+            }
+        });
+        
+        return webpSupportCache;
+    }
+    
+    /**
+     * 全局遮罩层清理函数
+     * 清理页面上所有残留的处理中遮罩层
+     * 作为异常情况下的最终保障措施
+     */
+    function cleanupAllProcessingOverlays() {
+        try {
+            const allOverlays = document.querySelectorAll('.processing-overlay');
+            let cleanedCount = 0;
+            
+            allOverlays.forEach(overlay => {
+                if (overlay && overlay.parentNode) {
+                    overlay.remove();
+                    cleanedCount++;
+                }
+            });
+            
+            if (cleanedCount > 0) {
+                console.log(`已清理 ${cleanedCount} 个残留的处理遮罩层`);
+            }
+            
+            return cleanedCount;
+        } catch (error) {
+            console.error('全局遮罩层清理失败:', error);
+            return 0;
+        }
+    }
+    
+    /**
+     * 清理所有图片资源
+     * 在页面卸载时调用，确保所有Blob URL都被释放
+     */
+    function cleanupAllImageResources() {
+        try {
+            let cleanupCount = 0;
+            
+            // 遍历所有图片数据并调用cleanup方法
+            images.forEach(imageData => {
+                if (typeof imageData.cleanup === 'function') {
+                    imageData.cleanup();
+                    cleanupCount++;
+                } else {
+                    // 兼容旧版本的数据结构
+                    if (imageData.originalBlobUrl && imageData.originalBlobUrl.startsWith('blob:')) {
+                        URL.revokeObjectURL(imageData.originalBlobUrl);
+                        cleanupCount++;
+                    }
+                    if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
+                        URL.revokeObjectURL(imageData.blobUrl);
+                        cleanupCount++;
+                    }
+                }
+            });
+            
+            console.log(`页面卸载：已清理 ${cleanupCount} 个图片资源`);
+        } catch (error) {
+            console.error('图片资源清理失败:', error);
+        }
+    }
+    
+    // =============================================
+    // 全局变量声明
+    // =============================================
+
+    /** @type {Array} 存储所有图片数据的数组 */
+    let images = [];
+    /** @type {Set<string>} 存储选中图片ID的集合 */
+    let selectedImages = new Set();
+    /** @type {boolean} 处理状态标志，防止重复处理 */
+    let isProcessing = false;
+    /** @type {boolean} 首次导入文件标志 */
+    let hasImportedFiles = false;
+    /** @type {Object|null} Viewer.js 实例 */
+    let viewerInstance = null;
+    /** @type {boolean} 预览取消标志 */
+    let previewCanceled = false;
+    /** @type {AbortController|null} 当前预览操作的控制器 */
+    let currentPreviewController = null;
+    
+    /**
+     * 显示错误日志
+     * @param {string} fileName - 文件名
+     * @param {string} reason - 错误原因
+     * @param {Object} [metadata] - 可选的元数据
+     *
+     * 统一由ErrorLogManager管理日志数据，只负责UI更新
+     */
+    function logError(fileName, reason, metadata = {}) {
+        const errorLogPanel = document.getElementById('errorLogPanel');
+        const errorLogContent = document.getElementById('errorLogContent');
+
+        // 统一由ErrorLogManager管理日志数据
+        const logEntry = ErrorLogManager.add(fileName, reason, metadata);
+
+        // 显示错误日志面板
+        errorLogPanel.style.display = 'block';
+
+        // 创建错误日志项（使用HTML转义防止XSS）
+        const errorItem = document.createElement('div');
+        errorItem.className = 'error-log-item';
+        errorItem.dataset.logId = logEntry.id; // 关联日志ID便于管理
+        errorItem.innerHTML = `<span class="error-timestamp">[${logEntry.formattedTime}]</span> <span class="error-file-name">${logEntry.fileName}</span><span class="error-reason"> - ${logEntry.reason}</span>`;
+        
+        // 添加鼠标悬停效果（可选）
+        errorItem.style.cursor = 'default';
+        errorItem.onmouseover = function() {
+            this.style.backgroundColor = '#fff0f0';
+        };
+        errorItem.onmouseout = function() {
+            this.style.backgroundColor = '';
+        };
+        
+        // 添加到错误日志内容顶部
+        if (errorLogContent.firstChild) {
+            errorLogContent.insertBefore(errorItem, errorLogContent.firstChild);
+        } else {
+            errorLogContent.appendChild(errorItem);
+        }
+        
+        // 限制最多显示 100 条错误日志，超出时自动移除最早的条目
+        const MAX_ERROR_LOGS = 100;
+        const errorItems = errorLogContent.querySelectorAll('.error-log-item');
+        if (errorItems.length > MAX_ERROR_LOGS) {
+            // 移除最旧的条目（位于末尾）
+            const oldestItem = errorItems[errorItems.length - 1];
+            if (oldestItem && oldestItem.parentNode) {
+                // 通过 ErrorLogManager.remove() 方法统一清理数据和 DOM，保持数据一致性
+                const logId = oldestItem.dataset.logId;
+                ErrorLogManager.remove(logId);
+                // 从 DOM 中移除对应的元素
+                oldestItem.parentNode.removeChild(oldestItem);
+                console.log(`🗑️ 已从 UI 层移除最旧错误日志：${logId}`);
+            }
+        }
+        
+        console.log(`📝 错误已记录: ${fileName} - ${reason}`);
+    }
+    
+    /** @type {Array<Object>} 错误日志数据存储 */
+    let errorLogs = [];
+    
+    // =============================================
+    // 错误日志管理器
+    // =============================================
+    
+    /**
+     * 错误日志管理器
+     * 用于管理错误日志的添加、查询和清理
+     */
+    const ErrorLogManager = {
+        /**
+         * 添加错误日志
+         * @param {string} fileName - 文件名
+         * @param {string} reason - 错误原因
+         * @param {Object} [metadata] - 可选的元数据
+         */
+        add(fileName, reason, metadata = {}) {
+            const timestamp = new Date();
+            const logEntry = {
+                id: Date.now().toString(36) + Math.random().toString(36).substring(2),
+                fileName: escapeHtml(fileName),
+                reason: escapeHtml(reason),
+                timestamp,
+                formattedTime: timestamp.toLocaleString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                }),
+                metadata: metadata,
+                // 未来可能添加的字段：
+                // blobUrl: null,  // 如果需要存储图片预览
+                // previewData: null  // 预览数据
+            };
+            
+            errorLogs.push(logEntry);
+            
+            // 限制最大的日志数量，防止内存泄漏
+            const MAX_LOGS = 100;
+            if (errorLogs.length > MAX_LOGS) {
+                const removedLogs = errorLogs.splice(0, errorLogs.length - MAX_LOGS);
+                // 清理被移除日志的资源
+                this.cleanupLogs(removedLogs);
+                console.log(`🗑️ 已从数据层清理${removedLogs.length}条错误日志`);
+            }
+            
+            return logEntry;
+        },
+        
+        /**
+         * 获取所有错误日志
+         * @returns {Array<Object>} 错误日志数组
+         */
+        getAll() {
+            return [...errorLogs];
+        },
+        
+        /**
+         * 清理错误日志
+         * @param {Array<Object>} [logs] - 要清理的日志数组，如果不提供则清理所有日志
+         */
+        cleanupLogs(logs = errorLogs) {
+            logs.forEach(log => {
+                // 通用Blob URL清理：遍历metadata中所有以blob:开头的字符串
+                if (log.metadata) {
+                    Object.keys(log.metadata).forEach(key => {
+                        const value = log.metadata[key];
+                        // 检查是否为blob URL字符串
+                        if (typeof value === 'string' && value.startsWith('blob:')) {
+                            try {
+                                URL.revokeObjectURL(value);
+                                console.log(`已释放错误日志中的Blob URL [${key}]:`, value);
+                            } catch (error) {
+                                console.warn(`释放Blob URL [${key}] 失败:`, error);
+                            }
+                            // 删除已释放的引用
+                            delete log.metadata[key];
+                        }
+                    });
+                }
+            });
+        },
+        
+        /**
+         * 移除错误日志
+         * @param {string} logId - 要移除的日志 ID
+         * @returns {boolean} 是否成功移除
+         */
+        remove(logId) {
+            const index = errorLogs.findIndex(log => log.id === logId);
+            if (index !== -1) {
+                const removedLog = errorLogs.splice(index, 1)[0];
+                // 清理被移除日志的资源
+                this.cleanupLogs([removedLog]);
+                return true;
+            }
+            return false;
+        },
+        
+        /**
+         * 清空所有错误日志
+         */
+        clear() {
+            // 先清理资源
+            this.cleanupLogs();
+            // 再清空数组
+            errorLogs = [];
+            console.log('✅ 错误日志数据已清空并释放相关资源');
+        }
+    };
+    
+    // =============================================
+    // 希尔伯特曲线算法
+    // =============================================
+
+    /**
+     * 生成二维希尔伯特曲线坐标序列
+     * @param {number} width - 图片宽度
+     * @param {number} height - 图片高度
+     * @returns {Array} 坐标数组，每个元素为[x, y]
+     *
+     * 希尔伯特曲线是一种空间填充曲线，能够保持像素的空间相关性
+     * 通过黄金分割比例计算偏移量实现混淆效果
+     */
+    // =============================================
+    // 希尔伯特曲线缓存（带LRU淘汰策略）
+    // =============================================
+    
+    // 增强版希尔伯特曲线缓存 - 基于访问频率的LFU策略
+    const curveCache = new Map(); // key -> {data: Uint32Array, frequency: number, lastAccess: number}
+    const MAX_CACHE_SIZE = 20;
+    let accessCounter = 0; // 全局访问计数器，用于记录访问时间
+    
+    function getCachedCurve(width, height) {
+        const key = `${width}x${height}`;
+        accessCounter++;
+        
+        if (curveCache.has(key)) {
+            // 命中缓存：增加访问频率并更新最后访问时间
+            const cacheEntry = curveCache.get(key);
+            cacheEntry.frequency++;
+            cacheEntry.lastAccess = accessCounter;
+            return cacheEntry.data;
+        }
+        
+        // 未命中：生成新的曲线数据
+        const curve = gilbert2d(width, height);
+        
+        // 检查是否需要淘汰
+        if (curveCache.size >= MAX_CACHE_SIZE) {
+            evictLFUCacheEntry();
+        }
+        
+        // 添加新条目
+        curveCache.set(key, {
+            data: curve,
+            frequency: 1,
+            lastAccess: accessCounter
+        });
+        
+        return curve;
+    }
+    
+    // LFU淘汰策略：淘汰访问频率最低的条目，频率相同时淘汰最久未访问的
+    function evictLFUCacheEntry() {
+        let minFreq = Infinity;
+        let oldestAccess = Infinity;
+        let evictionKey = null;
+        
+        // 找到访问频率最低且最久未访问的条目
+        for (const [key, entry] of curveCache.entries()) {
+            if (entry.frequency < minFreq || 
+                (entry.frequency === minFreq && entry.lastAccess < oldestAccess)) {
+                minFreq = entry.frequency;
+                oldestAccess = entry.lastAccess;
+                evictionKey = key;
+            }
+        }
+        
+        if (evictionKey !== null) {
+            curveCache.delete(evictionKey);
+            console.log(`LFU缓存淘汰: ${evictionKey} (频率: ${minFreq}, 最后访问: ${oldestAccess})`);
+        }
+    }
+    
+    function gilbert2d(width, height) {
+        const totalPixels = width * height;
+        const indices = new Uint32Array(totalPixels);
+        let idx = 0;
+
+        function generate2d(x, y, ax, ay, bx, by) {
+            const w = Math.abs(ax + ay);
+            const h = Math.abs(bx + by);
+            const dax = Math.sign(ax), day = Math.sign(ay);
+            const dbx = Math.sign(bx), dby = Math.sign(by);
+
+            if (h === 1) {
+                for (let i = 0; i < w; i++) {
+                    indices[idx++] = y * width + x;  // 直接存储线性索引
+                    x += dax;
+                    y += day;
+                }
+                return;
+            }
+            if (w === 1) {
+                for (let i = 0; i < h; i++) {
+                    indices[idx++] = y * width + x;  // 直接存储线性索引
+                    x += dbx;
+                    y += dby;
+                }
+                return;
+            }
+
+            let ax2 = Math.floor(ax / 2), ay2 = Math.floor(ay / 2);
+            let bx2 = Math.floor(bx / 2), by2 = Math.floor(by / 2);
+            const w2 = Math.abs(ax2 + ay2);
+            const h2 = Math.abs(bx2 + by2);
+
+            if (2 * w > 3 * h) {
+                if ((w2 % 2) && (w > 2)) {
+                    ax2 += dax;
+                    ay2 += day;
+                }
+                generate2d(x, y, ax2, ay2, bx, by);
+                generate2d(x + ax2, y + ay2, ax - ax2, ay - ay2, bx, by);
+            } else {
+                if ((h2 % 2) && (h > 2)) {
+                    bx2 += dbx;
+                    by2 += dby;
+                }
+                generate2d(x, y, bx2, by2, ax2, ay2);
+                generate2d(x + bx2, y + by2, ax, ay, bx - bx2, by - by2);
+                generate2d(x + (ax - dax) + (bx2 - dbx), y + (ay - day) + (by2 - dby),
+                           -bx2, -by2, -(ax - ax2), -(ay - ay2));
+            }
+        }
+
+        if (width >= height) {
+            generate2d(0, 0, width, 0, 0, height);
+        } else {
+            generate2d(0, 0, 0, height, width, 0);
+        }
+        return indices;
+    }
+
+    // =============================================
+    // 像素缓冲区池管理
+    // =============================================
+    
+    const pixelBufferPool = [];
+    
+    function getPixelBuffer(size) {
+        // 遍历池，找到第一个长度完全相等的缓冲区
+        for (let i = 0; i < pixelBufferPool.length; i++) {
+            if (pixelBufferPool[i].length === size) {
+                return pixelBufferPool.splice(i, 1)[0];
+            }
+        }
+        // 未找到则新建
+        return new Uint8ClampedArray(size);
+    }
+    
+    function releasePixelBuffer(buffer) {
+        const MAX_POOL_SIZE = 5;          // 限制池大小，避免无限增长
+        if (pixelBufferPool.length >= MAX_POOL_SIZE) {
+            return; // 丢弃，等待GC
+        }
+        pixelBufferPool.push(buffer);
+    }
+    
+    // =============================================
+    // Canvas池管理函数（按尺寸分组）
+    // =============================================
+    
+    /**
+     * 按尺寸分组的Canvas池
+     * key: "width×height", value: HTMLCanvasElement[]
+     * @type {Map<string, HTMLCanvasElement[]>}
+     */
+    const canvasPoolBySize = new Map();
+    
+    /**
+     * 从Canvas池获取指定尺寸的Canvas对象
+     * @param {number} width - 所需Canvas宽度
+     * @param {number} height - 所需Canvas高度
+     * @returns {HTMLCanvasElement} Canvas对象
+     * 
+     * 按尺寸精确匹配，减少重复设置宽高的开销
+     * 池为空时创建新对象并设置对应尺寸
+     */
+    function getCanvasFromPool(width, height) {
+        const key = `${width}x${height}`;
+        let pool = canvasPoolBySize.get(key);
+        
+        if (!pool) {
+            pool = [];
+            canvasPoolBySize.set(key, pool);
+        }
+        
+        if (pool.length > 0) {
+            return pool.pop();
+        }
+        
+        // 池为空时创建新Canvas并设置尺寸
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        return canvas;
+    }
+    
+    /**
+     * 将Canvas对象按尺寸放回对应的池中
+     * @param {HTMLCanvasElement} canvas - 要回收的Canvas对象
+     * 
+     * 按Canvas的实际尺寸进行分组存储
+     * 每个尺寸组限制最大容量为5个对象
+     */
+    function releaseCanvasToPool(canvas) {
+        // 使用Canvas的实际尺寸作为键
+        const key = `${canvas.width}x${canvas.height}`;
+        
+        // 确保该尺寸组存在
+        if (!canvasPoolBySize.has(key)) {
+            canvasPoolBySize.set(key, []);
+        }
+        
+        const pool = canvasPoolBySize.get(key);
+        
+        // 限制每个尺寸组的最大容量为5个Canvas对象
+        if (pool.length < 5) {
+            pool.push(canvas);
+        }
+        // 超过容量限制的对象会被垃圾回收
+    }
+    
+    /**
+     * 智能清理Canvas池
+     * 保留部分常用尺寸的Canvas，避免频繁重建影响性能
+     */
+    function smartClearCanvasPools() {
+        const COMMON_SIZES = [
+            '256x256',   // 常见小图
+            '512x512',   // 中等尺寸
+            '1024x1024', // 常见大图
+            '1920x1080', // 1080p
+            '3840x2160'  // 4K
+        ];
+        
+        const RETAIN_COUNT_PER_SIZE = 2; // 每个尺寸保留2个Canvas
+        
+        canvasPoolBySize.forEach((pool, key) => {
+            if (COMMON_SIZES.includes(key)) {
+                // 对于常用尺寸，保留部分Canvas
+                if (pool.length > RETAIN_COUNT_PER_SIZE) {
+                    const canvasesToKeep = pool.slice(0, RETAIN_COUNT_PER_SIZE);
+                    const canvasesToClear = pool.slice(RETAIN_COUNT_PER_SIZE);
+                    
+                    // 清理多余的Canvas
+                    canvasesToClear.forEach(canvas => {
+                        canvas.width = 0;
+                        canvas.height = 0;
+                    });
+                    
+                    // 保留指定数量的Canvas
+                    pool.length = 0;
+                    pool.push(...canvasesToKeep);
+                    console.log(`保留常用尺寸 ${key}: ${canvasesToKeep.length} 个Canvas`);
+                }
+            } else {
+                // 非常用尺寸完全清理
+                pool.forEach(canvas => {
+                    canvas.width = 0;
+                    canvas.height = 0;
+                });
+                pool.length = 0;
+                console.log(`清理非常用尺寸 ${key}: ${pool.length} 个Canvas`);
+            }
+        });
+        
+        // 清理完全空的池
+        for (const [key, pool] of canvasPoolBySize.entries()) {
+            if (pool.length === 0) {
+                canvasPoolBySize.delete(key);
+            }
+        }
+        
+        console.log('智能清理完成，保留了常用尺寸的Canvas');
+    }
+    
+    /**
+     * 预创建常用尺寸的Canvas
+     * 在页面重新可见时提前创建可能需要的Canvas
+     */
+    function preCreateCommonCanvases() {
+        const COMMON_SIZES = [
+            { width: 256, height: 256 },
+            { width: 512, height: 512 },
+            { width: 1024, height: 1024 },
+            { width: 1920, height: 1080 }
+        ];
+        
+        COMMON_SIZES.forEach(size => {
+            const key = `${size.width}x${size.height}`;
+            let pool = canvasPoolBySize.get(key);
+            
+            if (!pool) {
+                pool = [];
+                canvasPoolBySize.set(key, pool);
+            }
+            
+            // 确保每个常用尺寸至少有2个Canvas
+            while (pool.length < 2) {
+                const canvas = document.createElement('canvas');
+                canvas.width = size.width;
+                canvas.height = size.height;
+                pool.push(canvas);
+            }
+        });
+        
+        console.log('预创建常用Canvas完成');
+    }
+    
+    /**
+     * 清理所有Canvas池中的对象
+     * 
+     * 在页面卸载时调用，完全释放所有Canvas资源
+     */
+    function clearAllCanvasPools() {
+        canvasPoolBySize.forEach((pool, key) => {
+            pool.forEach(canvas => {
+                // 重置尺寸以帮助垃圾回收
+                canvas.width = 0;
+                canvas.height = 0;
+            });
+            pool.length = 0;
+        });
+        canvasPoolBySize.clear();
+        console.log('已清理所有Canvas池');
+    }
+    
+
+    
+    // =============================================
+    // 图片格式转换函数
+    // =============================================
+
+    /**
+     * 将Canvas转换为BMP格式的二进制数据（优化版本）
+     * @param {HTMLCanvasElement} canvas - 要转换的Canvas元素
+     * @returns {ArrayBuffer} BMP格式的二进制数据
+     *
+     * 优化点：
+     * 1. 使用Uint8Array直接填充文件头，减少DataView开销
+     * 2. 预计算行对齐参数，避免循环中重复计算
+     * 3. 对大图(>2MB)可考虑使用Web Worker处理
+     */
+    function canvasToBMP(canvas) {
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const imageData = ctx.getImageData(0, 0, width, height);
+
+        // 预计算行对齐参数（避免在循环中重复计算）
+        const bytesPerPixel = 3; // 24位BMP不包含Alpha通道
+        const rowPadding = (4 - (width * bytesPerPixel) % 4) % 4; // 4字节对齐padding
+        const rowSize = width * bytesPerPixel + rowPadding;
+        const pixelDataSize = rowSize * height;
+        const totalSize = 54 + pixelDataSize; // 14(文件头) + 40(信息头) + 像素数据
+        
+        // 使用Uint8Array直接填充文件头（性能优于DataView）
+        const result = new Uint8Array(totalSize);
+        
+        // BMP文件头 (14字节)
+        result[0] = 0x42;  // 'B'
+        result[1] = 0x4D;  // 'M'
+        // 文件大小 (little-endian)
+        result[2] = totalSize & 0xFF;
+        result[3] = (totalSize >> 8) & 0xFF;
+        result[4] = (totalSize >> 16) & 0xFF;
+        result[5] = (totalSize >> 24) & 0xFF;
+        // 保留字段 (6-9字节为0)
+        result[10] = 54 & 0xFF;  // 像素数据偏移量低位
+        result[11] = (54 >> 8) & 0xFF;  // 像素数据偏移量高位
+        
+        // BMP信息头 (40字节)
+        result[14] = 40;  // 信息头大小
+        // 图片宽度 (little-endian)
+        result[18] = width & 0xFF;
+        result[19] = (width >> 8) & 0xFF;
+        result[20] = (width >> 16) & 0xFF;
+        result[21] = (width >> 24) & 0xFF;
+        // 图片高度 (负数表示从上到下存储)
+        const negativeHeight = -height;
+        result[22] = negativeHeight & 0xFF;
+        result[23] = (negativeHeight >> 8) & 0xFF;
+        result[24] = (negativeHeight >> 16) & 0xFF;
+        result[25] = (negativeHeight >> 24) & 0xFF;
+        result[26] = 1;  // 颜色平面数
+        result[28] = 24; // 每像素位数(24位)
+        // 像素数据大小
+        result[34] = pixelDataSize & 0xFF;
+        result[35] = (pixelDataSize >> 8) & 0xFF;
+        result[36] = (pixelDataSize >> 16) & 0xFF;
+        result[37] = (pixelDataSize >> 24) & 0xFF;
+        // 分辨率 (2835 pixels/meter ≈ 72 DPI)
+        result[38] = 47; result[39] = 11;  // 水平分辨率低位
+        result[42] = 47; result[43] = 11;  // 垂直分辨率低位
+        
+        // 转换像素数据：RGBA -> BGR（优化的循环）
+        const srcData = imageData.data;
+        let srcIndex = 0;
+        let dstIndex = 54; // 从文件头后开始写入
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                // BGR顺序写入（跳过Alpha通道）
+                result[dstIndex++] = srcData[srcIndex + 2];  // B
+                result[dstIndex++] = srcData[srcIndex + 1];  // G
+                result[dstIndex++] = srcData[srcIndex];      // R
+                srcIndex += 4; // 跳过Alpha通道
+            }
+            // 添加行padding（已由Uint8Array初始化为0）
+            dstIndex += rowPadding;
+        }
+
+        return result.buffer;
+    }
+    
+    /**
+     * 异步BMP生成函数（用于大图处理）
+     * @param {HTMLCanvasElement} canvas - 要转换的Canvas元素
+     * @returns {Promise<ArrayBuffer>} BMP格式的二进制数据
+     * 
+     * 对于大图(>2MB)使用Web Worker避免主线程阻塞
+     */
+    async function canvasToBMPAsync(canvas) {
+        const dataSize = canvas.width * canvas.height * 4;
+        
+        // 小图直接同步处理
+        if (dataSize <= 2 * 1024 * 1024) {  // 2MB阈值
+            return canvasToBMP(canvas);
+        }
+        
+        // 大图使用Web Worker处理
+        return new Promise((resolve, reject) => {
+            try {
+                // 创建内联Worker处理大图
+                const workerCode = `
+                    self.onmessage = function(e) {
+                        const { width, height, imageData } = e.data;
+                        
+                        // 预计算参数
+                        const bytesPerPixel = 3;
+                        const rowPadding = (4 - (width * bytesPerPixel) % 4) % 4;
+                        const rowSize = width * bytesPerPixel + rowPadding;
+                        const pixelDataSize = rowSize * height;
+                        const totalSize = 54 + pixelDataSize;
+                        
+                        const result = new Uint8Array(totalSize);
+                        
+                        // 文件头
+                        result[0] = 0x42; result[1] = 0x4D;
+                        result[2] = totalSize & 0xFF;
+                        result[3] = (totalSize >> 8) & 0xFF;
+                        result[4] = (totalSize >> 16) & 0xFF;
+                        result[5] = (totalSize >> 24) & 0xFF;
+                        result[10] = 54 & 0xFF;
+                        result[11] = (54 >> 8) & 0xFF;
+                        
+                        // 信息头
+                        result[14] = 40;
+                        result[18] = width & 0xFF;
+                        result[19] = (width >> 8) & 0xFF;
+                        result[20] = (width >> 16) & 0xFF;
+                        result[21] = (width >> 24) & 0xFF;
+                        
+                        const negativeHeight = -height;
+                        result[22] = negativeHeight & 0xFF;
+                        result[23] = (negativeHeight >> 8) & 0xFF;
+                        result[24] = (negativeHeight >> 16) & 0xFF;
+                        result[25] = (negativeHeight >> 24) & 0xFF;
+                        
+                        result[26] = 1; result[28] = 24;
+                        result[34] = pixelDataSize & 0xFF;
+                        result[35] = (pixelDataSize >> 8) & 0xFF;
+                        result[36] = (pixelDataSize >> 16) & 0xFF;
+                        result[37] = (pixelDataSize >> 24) & 0xFF;
+                        result[38] = 47; result[39] = 11;
+                        result[42] = 47; result[43] = 11;
+                        
+                        // 像素数据转换
+                        let srcIndex = 0;
+                        let dstIndex = 54;
+                        
+                        for (let y = 0; y < height; y++) {
+                            for (let x = 0; x < width; x++) {
+                                result[dstIndex++] = imageData[srcIndex + 2];
+                                result[dstIndex++] = imageData[srcIndex + 1];
+                                result[dstIndex++] = imageData[srcIndex];
+                                srcIndex += 4;
+                            }
+                            dstIndex += rowPadding;
+                        }
+                        
+                        self.postMessage(result.buffer, [result.buffer]);
+                        self.close();
+                    };
+                `;
+                
+                const blob = new Blob([workerCode], { type: 'application/javascript' });
+                const blobUrl = URL.createObjectURL(blob);
+                const worker = new Worker(blobUrl);
+                
+                worker.onmessage = function(e) {
+                    URL.revokeObjectURL(blobUrl); // 释放Web Worker的blob URL
+                    resolve(e.data);
+                };
+                
+                worker.onerror = function(error) {
+                    URL.revokeObjectURL(blobUrl); // 释放Web Worker的blob URL
+                    reject(new Error(`Web Worker处理失败: ${error.message}`));
+                };
+                
+                // 确保Worker终止时也能释放资源
+                worker.addEventListener('messageerror', function() {
+                    URL.revokeObjectURL(blobUrl);
+                });
+                
+                const ctx = canvas.getContext('2d');
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                worker.postMessage({
+                    width: canvas.width,
+                    height: canvas.height,
+                    imageData: imageData.data
+                }, [imageData.data.buffer]);
+                
+            } catch (error) {
+                // Web Worker不可用时回退到同步处理
+                console.warn('Web Worker不可用，回退到同步处理:', error);
+                resolve(canvasToBMP(canvas));
+            }
+        });
+    }
+
+    // =============================================
+    // 图片处理核心函数
+    // =============================================
+
+    /**
+     * 处理单张图片（混淆/解混淆/还原）
+     * @param {Object} imageData - 图片数据对象
+     * @param {string} operation - 操作类型：'encrypt'|'decrypt'|'restore'
+     * @returns {Promise} 处理完成的Promise
+     *
+     * 使用希尔伯特曲线算法对图片像素进行空间重排
+     * 通过黄金分割比例计算偏移量实现混淆效果
+     */
+    async function processSingleImage(imageData, operation) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            let sharedCanvas = null;
+            let sharedCtx = null;
+
+            // 图片加载失败处理
+            img.onerror = () => {
+                const errorMsg = `图片加载失败: ${imageData.name}`;
+                if (typeof logError !== 'undefined') {
+                    logError(imageData.name, '图片加载失败');
+                }
+                // 如果已经获取了Canvas，在这里释放
+                if (sharedCanvas) {
+                    releaseCanvasToPool(sharedCanvas);
+                }
+                reject(new Error(errorMsg));
+            };
+
+            // 图片加载成功处理
+            img.onload = () => {
+                let dstBuffer = null; // 提升到try外部，确保catch可以访问
+                
+                try {
+                    // 根据图片尺寸获取合适的Canvas
+                    sharedCanvas = getCanvasFromPool(img.width, img.height);
+                    sharedCtx = sharedCanvas.getContext('2d', { willReadFrequently: true });
+
+                    // 绘制图片到共享canvas
+                    sharedCtx.clearRect(0, 0, img.width, img.height); // 清除画布避免残留
+                    sharedCtx.drawImage(img, 0, 0);
+
+                    // 获取原始像素数据并从池中获取目标缓冲区
+                    const imageDataPixels = sharedCtx.getImageData(0, 0, img.width, img.height);
+                    dstBuffer = getPixelBuffer(imageDataPixels.data.length); // 从池中获取缓冲区
+
+                    // 生成希尔伯特曲线线性索引数组（使用缓存）
+                    const curveIndices = getCachedCurve(img.width, img.height);
+                    // 计算偏移量：使用黄金分割比例 (√5-1)/2 ≈ 0.618
+                    const offset = Math.round((Math.sqrt(5) - 1) / 2 * img.width * img.height);
+                    const totalPixels = img.width * img.height;
+
+                    // 根据操作类型处理像素数据
+                    if (operation === 'encrypt') {
+                        // 混淆操作：将像素按希尔伯特曲线顺序重排（使用Uint32Array优化）
+                        const srcU32 = new Uint32Array(imageDataPixels.data.buffer);
+                        const dstU32 = new Uint32Array(dstBuffer.buffer);
+                        for(let i = 0; i < totalPixels; i++){
+                            const oldIdx = curveIndices[i];          // 原始线性索引
+                            const newIdx = curveIndices[(i + offset) % totalPixels];  // 新线性索引
+                            
+                            // 一次处理整个像素（4字节）
+                            dstU32[newIdx] = srcU32[oldIdx];
+                        }
+                        imageData.status = 'encrypted';
+                    } else if (operation === 'decrypt') {
+                        // 解混淆操作：反向重排像素（使用Uint32Array优化）
+                        const srcU32 = new Uint32Array(imageDataPixels.data.buffer);
+                        const dstU32 = new Uint32Array(dstBuffer.buffer);
+                        for(let i = 0; i < totalPixels; i++){
+                            const oldIdx = curveIndices[i];          // 原始线性索引
+                            const newIdx = curveIndices[(i + offset) % totalPixels];  // 新线性索引
+                            
+                            // 一次处理整个像素（4字节）
+                            dstU32[oldIdx] = srcU32[newIdx];
+                        }
+                        imageData.status = 'decrypted';
+                    } else if (operation === 'restore') {
+                        // 还原操作：直接复制原始数据
+                        dstBuffer.set(imageDataPixels.data);
+                        imageData.status = 'original';
+                    }
+
+                    // 一次性创建ImageData对象，减少GC压力
+                    const newImageData = new ImageData(dstBuffer, img.width, img.height);
+
+                    // 将处理后的像素数据绘制到Canvas
+                    sharedCtx.putImageData(newImageData, 0, 0);
+                    
+                    // 立即释放缓冲区（Canvas已持有像素数据，缓冲区不再需要）
+                    releasePixelBuffer(dstBuffer);
+
+                    // 转换为PNG格式的Blob
+                    sharedCanvas.toBlob(blob => {
+                        try {
+                            if (!blob) {
+                                reject(new Error('生成Blob失败'));
+                                return;
+                            }
+
+                            // 释放旧的Blob URL（避免内存泄漏）
+                            if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
+                                URL.revokeObjectURL(imageData.blobUrl);
+                            }
+
+                            // 创建新的Blob URL
+                            const blobUrl = URL.createObjectURL(blob);
+
+                            // 更新图片数据
+                            imageData.blobUrl = blobUrl;
+                            imageData.blob = blob;
+                            imageData.processed = true;
+                            imageData.format = 'PNG';  // 更新格式为处理后实际格式（始终为 PNG）
+
+                            // 更新缩略图显示
+                            updateThumbnail(imageData.id, blobUrl);
+
+                            // 更新状态显示
+                            updateImageStatus(imageData.id);
+                            resolve(imageData);
+                        } catch (error) {
+                            console.error('处理过程中发生错误:', error);
+                            reject(error);
+                        } finally {
+                            // 使用公共函数回收Canvas（添加存在性判断确保健壮性）
+                            if (sharedCanvas) {
+                                releaseCanvasToPool(sharedCanvas);
+                                sharedCanvas = null; // 防止二次释放
+                            }
+                        }
+
+                    }, 'image/png', 1.0);
+                } catch (error) {
+                    console.error(`处理图片失败: ${imageData.name}`, error);
+                    // 异常路径释放缓冲区
+                    if (dstBuffer) {
+                        releasePixelBuffer(dstBuffer);
+                    }
+                    if (typeof logError !== 'undefined') {
+                        logError(imageData.name, `处理失败: ${error.message || '未知错误'}`);
+                    }
+                    // 释放Canvas资源回到池中（添加存在性判断）
+                    if (sharedCanvas) {
+                        releaseCanvasToPool(sharedCanvas);
+                        sharedCanvas = null; // 防止二次释放
+                    }
+                    
+                    // 确保在处理失败时也释放可能创建的Blob URL
+                    if (imageData.blobUrl) {
+                        URL.revokeObjectURL(imageData.blobUrl);
+                        imageData.blobUrl = null;
+                        console.log('处理失败时已释放临时Blob URL');
+                    }
+                    
+                    reject(error);
+                }
+            };
+
+            // 关键修复：检查并重新创建有效的 Blob URL
+            let validBlobUrl = imageData.blobUrl || imageData.originalBlobUrl || imageData.url;
+            
+            // 如果 blob URL 已失效，重新创建
+            if (validBlobUrl && validBlobUrl.startsWith('blob:') && imageData.file) {
+                try {
+                    const testImg = new Image();
+                    testImg.onload = () => {
+                        console.log(`✅ 处理图片前验证 Blob URL 有效：${imageData.name}`);
+                    };
+                    testImg.onerror = () => {
+                        console.warn(`⚠️ Blob URL 已失效，重新创建：${imageData.name}`);
+                        validBlobUrl = URL.createObjectURL(imageData.file);
+                        // 更新引用
+                        if (imageData.blobUrl) {
+                            imageData.blobUrl = validBlobUrl;
+                        }
+                        if (imageData.originalBlobUrl) {
+                            imageData.originalBlobUrl = validBlobUrl;
+                        }
+                        imageData.url = validBlobUrl;
+                    };
+                    testImg.src = validBlobUrl;
+                } catch (e) {
+                    console.error('Blob URL 检查失败:', e);
+                    validBlobUrl = URL.createObjectURL(imageData.file);
+                    if (imageData.blobUrl) imageData.blobUrl = validBlobUrl;
+                    if (imageData.originalBlobUrl) imageData.originalBlobUrl = validBlobUrl;
+                    imageData.url = validBlobUrl;
+                }
+            }
+            
+            // 设置图片源，开始加载图片
+            img.src = validBlobUrl;
+        });
+    }
+
+    /**
+     * 更新缩略图显示
+     * @param {string} imageId - 图片ID
+     * @param {string} url - 新的图片URL
+     *
+     * 使用预加载技术确保图片加载成功后再更新缩略图
+     */
+    function updateThumbnail(imageId, url) {
+        const item = document.querySelector(`[data-id="${imageId}"]`);
+        if (!item) return;
+
+        const thumbnail = item.querySelector('.image-preview');
+        if (thumbnail) {
+            // 创建新的Image对象来预加载，确保图片可用
+            const tempImg = new Image();
+            tempImg.onload = () => {
+                thumbnail.src = /** @type {string} */(url);
+                // 加载完成后清理临时对象
+                tempImg.onload = null;
+                tempImg.onerror = null;
+                tempImg.src = '';
+            };
+            tempImg.onerror = () => {
+                console.warn('缩略图更新失败，使用原始URL');
+                const imageData = images.find(img => img.id === imageId);
+                if (imageData) {
+                    thumbnail.src = /** @type {string} */(imageData.url);
+                }
+                // 错误处理后也清理临时对象
+                tempImg.onload = null;
+                tempImg.onerror = null;
+                tempImg.src = '';
+            };
+            tempImg.src = url;
+        }
+    }
+
+    // =============================================
+    // 批量操作函数
+    // =============================================
+
+    /**
+     * 批量处理图片（混淆/解混淆/还原）
+     * @param {string} operation - 操作类型：'encrypt'|'decrypt'|'restore'
+     *
+     * 支持选择特定图片或处理所有图片
+     * 显示进度条和状态信息
+     */
+    async function processBatch(operation) {
+        if (isProcessing) return;
+
+        // 确定目标图片ID：优先使用选中的图片，否则处理所有图片
+        const targetIds = selectedImages.size > 0
+            ? Array.from(selectedImages)
+            : images.map(img => img.id);
+
+        if (targetIds.length === 0) {
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = '⚠️ 请先选择图片';
+            setTimeout(() => statusDiv.innerHTML = '', 2000);
+            return;
+        }
+
+        isProcessing = true;
+        const statusDiv = document.getElementById('batchStatus');
+        statusDiv.innerHTML = `<div class="loading"></div> 正在处理 ${targetIds.length} 张图片...`;
+
+        // 统计成功和失败数量
+        let successCount = 0;
+        let failureCount = 0;
+        
+        try {
+            for (let i = 0; i < targetIds.length; i++) {
+                const imageId = targetIds[i];
+                const imageData = images.find(img => img.id === imageId);
+                if (imageData) {
+                    // 显示处理中遮罩，提供视觉反馈
+                    const item = document.querySelector(`[data-id="${imageId}"]`);
+                    let overlay = null;
+                    if (item) {
+                        overlay = document.createElement('div');
+                        overlay.className = 'processing-overlay';
+                        overlay.innerHTML = '<div class="loading"></div>';
+                        item.querySelector('.thumbnail-container').appendChild(overlay);
+                    }
+
+                    try {
+                        await processSingleImage(imageData, operation);
+                        successCount++;
+                    } catch (error) {
+                        console.error(`处理图片失败: ${imageData.name}`, error);
+                        failureCount++;
+                        // 记录错误到日志
+                        if (typeof logError !== 'undefined') {
+                            logError(imageData.name, `处理失败: ${error.message || '未知错误'}`);
+                        }
+                    } finally {
+                        // 简化遮罩清理：直接移除overlay（如果存在）
+                        overlay?.remove();
+                    }
+
+                    // 更新进度显示
+                    const progress = Math.round((i + 1) / targetIds.length * 100);
+                    statusDiv.innerHTML = `
+                    正在处理 ${i + 1}/${targetIds.length} 张图片 (${progress}%)
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${progress}%"></div>
+                    </div>
+                `;
+
+                    // 让出控制权，避免阻塞UI
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+            }
+
+            // 根据成功和失败数量显示不同状态
+            if (failureCount === 0) {
+                statusDiv.innerHTML = `✅ 全部处理成功 (${successCount} 张)`;
+            } else if (successCount === 0) {
+                statusDiv.innerHTML = `❌ 全部处理失败 (${failureCount} 张)`;
+            } else {
+                statusDiv.innerHTML = `✅ 成功 ${successCount} 张，❌ 失败 ${failureCount} 张`;
+            }
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+        } catch (error) {
+            console.error('批量处理失败:', error);
+            statusDiv.innerHTML = '❌ 处理失败';
+            setTimeout(() => statusDiv.innerHTML = '', 2000);
+        } finally {
+            isProcessing = false;
+        }
+    }
+
+    /**
+     * 保存图片到本地
+     * @param {string} format - 保存格式：'png'|'bmp'
+     *
+     * 支持PNG和BMP两种格式
+     * 自动处理文件名和状态信息
+     */
+    /**
+     * 保存图片到本地
+     * 支持选择特定图片或处理所有图片
+     * 使用公共函数saveImageInFormat进行实际的图片保存操作
+     * @param {string} format - 保存格式：'png'|'bmp'|'jpg'|'jpeg'|'webp'
+     * @returns {Promise<void>} 无返回值的Promise
+     */
+    async function saveImages(format) {
+        const targetIds = selectedImages.size > 0
+            ? Array.from(selectedImages)
+            : images.map(img => img.id);
+
+        if (targetIds.length === 0) {
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = '⚠️ 请先选择图片';
+            setTimeout(() => statusDiv.innerHTML = '', 2000);
+            return;
+        }
+
+        // 统计成功和失败数量
+        let successCount = 0;
+        let failureCount = 0;
+        
+        const statusDiv = document.getElementById('batchStatus');
+        statusDiv.innerHTML = `<div class="loading"></div> 正在保存 ${targetIds.length} 张图片...`;
+
+        try {
+            for (let i = 0; i < targetIds.length; i++) {
+                const imageId = targetIds[i];
+                const imageData = images.find(img => img.id === imageId);
+                if (!imageData) {
+                    failureCount++;
+                    continue;
+                }
+
+                try {
+                    await saveImageInFormat(imageData, format);
+                    successCount++;
+                } catch (error) {
+                    console.error(`保存图片失败: ${imageData.name}`, error);
+                    failureCount++;
+                    // 记录错误到日志
+                    if (typeof logError !== 'undefined') {
+                        logError(imageData.name, `保存失败: ${error.message || '未知错误'}`);
+                    }
+                }
+
+                // 添加延迟防止同时下载太多文件
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            // 根据成功和失败数量显示不同状态
+            if (failureCount === 0) {
+                statusDiv.innerHTML = `✅ 全部保存成功 (${successCount} 张)`;
+            } else if (successCount === 0) {
+                statusDiv.innerHTML = `❌ 全部保存失败 (${failureCount} 张)`;
+            } else {
+                statusDiv.innerHTML = `✅ 成功 ${successCount} 张，❌ 失败 ${failureCount} 张`;
+            }
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+        } catch (error) {
+            console.error('保存失败:', error);
+            statusDiv.innerHTML = '❌ 保存失败';
+            setTimeout(() => statusDiv.innerHTML = '', 2000);
+        }
+    }
+
+    /**
+     * 保存图片到本地（公共函数）
+     * 提取自 saveImages 和 saveSingleImage 函数的公共逻辑
+     * 支持多种图片格式的转换和保存
+     * @param {Object} imageData - 图片数据对象
+     * @param {string} format - 保存格式：'png'|'bmp'|'jpg'|'jpeg'|'webp'
+     * @param {string} [fileNameSuffix=''] - 文件名后缀
+     * @returns {Promise} 保存操作的 Promise
+     * 
+     * 优化：当图片当前格式与目标格式一致时，直接下载原 Blob 避免 Canvas 转换
+     */
+    async function saveImageInFormat(imageData, format, fileNameSuffix = '') {
+        return new Promise((resolve, reject) => {
+            // 获取当前图片格式（转换为小写进行比较）
+            const currentFormat = (imageData.format || '').toLowerCase();
+            const targetFormat = format.toLowerCase();
+                
+            // 优化：格式一致时直接使用原 Blob，避免 Canvas 转换
+            const isSameFormat = (currentFormat === targetFormat) || 
+                                 (targetFormat === 'jpg' && currentFormat === 'jpeg') ||
+                                 (targetFormat === 'jpeg' && currentFormat === 'jpg');
+                
+            if (isSameFormat && imageData.blob) {
+                // 格式相同且有处理后的 Blob，直接下载
+                const url = URL.createObjectURL(imageData.blob);
+                const a = document.createElement('a');
+                const ext = targetFormat === 'jpeg' ? 'jpg' : targetFormat;
+                a.download = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}_${imageData.status || 'processed'}.${ext}`;
+                a.href = url;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                    resolve();
+                }, 100);
+                return;
+            }
+                
+            if (format === 'png') {
+                // PNG格式保存：直接使用现有的Blob或原始URL
+                let urlToSave;
+                let fileName;
+
+                if (imageData.blobUrl && imageData.blob) {
+                    urlToSave = imageData.blobUrl;
+                    fileName = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}_${imageData.status || 'processed'}.png`;
+                } else {
+                    urlToSave = imageData.url;
+                    fileName = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}.png`;
+                }
+
+                // 创建下载链接并触发下载
+                const a = document.createElement('a');
+                a.href = urlToSave;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                resolve();
+
+            } else if (format === 'bmp') {
+                // BMP 格式保存：需要转换格式（无优化路径）
+                const img = new Image();
+                let canvas = null;
+                img.onload = async () => {
+                    
+                    try {
+                        // 根据图片尺寸获取合适的Canvas
+                        canvas = getCanvasFromPool(img.width, img.height);
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+
+                        // 根据图片大小选择合适的处理方式
+                        const bmpData = await canvasToBMPAsync(canvas);
+                        const blob = new Blob([bmpData], {type: 'image/bmp'});
+                        const url = URL.createObjectURL(blob);
+
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}_${imageData.status || 'processed'}.bmp`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        
+                        // 延迟释放URL，确保下载完成
+                        setTimeout(() => {
+                            URL.revokeObjectURL(url);
+                            resolve();
+                        }, 100);
+                    } catch (error) {
+                        console.error('生成BMP失败:', error);
+                        reject(new Error(`生成BMP失败: ${error.message || '未知错误'}`));
+                    } finally {
+                        // 使用公共函数回收Canvas（添加存在性判断确保健壮性）
+                        if (canvas) {
+                            releaseCanvasToPool(canvas);
+                            canvas = null; // 防止二次释放
+                        }
+                    }
+                };
+
+                img.onerror = () => {
+                    console.error('图片加载失败，无法保存为BMP');
+                    // 释放Canvas资源回到池中（添加存在性判断）
+                    if (canvas) {
+                        releaseCanvasToPool(canvas);
+                        canvas = null; // 防止二次释放
+                    }
+                    reject(new Error('图片加载失败，无法保存为BMP'));
+                };
+
+                img.src = imageData.blobUrl || imageData.url;
+            } else if (format === 'jpg' || format === 'jpeg') {
+                // JPG 格式保存：需要转换格式（无优化路径）
+                const img = new Image();
+                let canvas = null;
+                img.onload = () => {
+                    
+                    try {
+                        // 根据图片尺寸获取合适的Canvas
+                        canvas = getCanvasFromPool(img.width, img.height);
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+
+                        canvas.toBlob(blob => {
+                            try {
+                                if (!blob) {
+                                    console.error('生成JPG Blob失败');
+                                    reject(new Error('生成JPG Blob失败'));
+                                    return;
+                                }
+                                
+                                const url = URL.createObjectURL(blob);
+
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}_${imageData.status || 'processed'}.jpg`;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                
+                                // 延迟释放URL，确保下载完成
+                                setTimeout(() => {
+                                    URL.revokeObjectURL(url);
+                                    resolve();
+                                }, 100);
+                            } catch (error) {
+                                console.error('JPG Blob处理失败:', error);
+                                reject(new Error(`JPG Blob处理失败: ${error.message || '未知错误'}`));
+                            }
+                        }, 'image/jpeg', 1.0); // 最高质量
+                    } catch (error) {
+                        console.error('生成JPG失败:', error);
+                        reject(new Error(`生成JPG失败: ${error.message || '未知错误'}`));
+                    } finally {
+                        // 使用公共函数回收Canvas（添加存在性判断确保健壮性）
+                        if (canvas) {
+                            releaseCanvasToPool(canvas);
+                            canvas = null; // 防止二次释放
+                        }
+                    }
+                };
+
+                img.onerror = () => {
+                    console.error('图片加载失败，无法保存为JPG');
+                    // 释放Canvas资源回到池中（添加存在性判断）
+                    if (canvas) {
+                        releaseCanvasToPool(canvas);
+                        canvas = null; // 防止二次释放
+                    }
+                    reject(new Error('图片加载失败，无法保存为JPG'));
+                };
+
+                img.src = imageData.blobUrl || imageData.url;
+            } else if (format === 'webp') {
+                // WebP 格式保存：需要转换格式（无优化路径）
+                const img = new Image();
+                let canvas = null;
+                img.onload = async () => {
+                    // 检测浏览器是否支持WebP
+                    const webpSupported = await isWebPSupported();
+                    if (!webpSupported) {
+                        reject(new Error('您的浏览器不支持WebP格式，请选择其他格式保存'));
+                        return;
+                    }
+                    
+                    try {
+                        // 根据图片尺寸获取合适的Canvas
+                        canvas = getCanvasFromPool(img.width, img.height);
+                        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                        ctx.drawImage(img, 0, 0);
+
+                        canvas.toBlob(blob => {
+                            try {
+                                if (!blob) {
+                                    console.error('生成WebP Blob失败');
+                                    reject(new Error('生成WebP Blob失败'));
+                                    return;
+                                }
+                                
+                                const url = URL.createObjectURL(blob);
+
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}_${imageData.status || 'processed'}.webp`;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                
+                                // 延迟释放URL，确保下载完成
+                                setTimeout(() => {
+                                    URL.revokeObjectURL(url);
+                                    resolve();
+                                }, 100);
+                            } catch (error) {
+                                console.error('WebP Blob处理失败:', error);
+                                reject(new Error(`WebP Blob处理失败: ${error.message || '未知错误'}`));
+                            }
+                        }, 'image/webp', 1.0); // 最高质量
+                    } catch (error) {
+                        console.error('生成WebP失败:', error);
+                        reject(new Error(`生成WebP失败: ${error.message || '未知错误'}`));
+                    } finally {
+                        // 使用公共函数回收Canvas（添加存在性判断确保健壮性）
+                        if (canvas) {
+                            releaseCanvasToPool(canvas);
+                            canvas = null; // 防止二次释放
+                        }
+                    }
+                };
+
+                img.onerror = () => {
+                    console.error('图片加载失败，无法保存为WebP');
+                    // 释放Canvas资源回到池中（添加存在性判断）
+                    if (canvas) {
+                        releaseCanvasToPool(canvas);
+                        canvas = null; // 防止二次释放
+                    }
+                    reject(new Error('图片加载失败，无法保存为WebP'));
+                };
+
+                img.src = imageData.blobUrl || imageData.url;
+            }
+        });
+    }
+
+    // =============================================
+    // 图片管理函数
+    // =============================================
+
+    /**
+     * 添加图片到应用
+     * @param {File} file - 图片文件对象
+     *
+     * 读取图片文件，创建图片数据对象，并添加到图片列表
+     * 支持获取图片尺寸和初始化状态信息
+     */
+    function addImage(file) {
+        // 生成唯一 ID：时间戳 + 随机数
+        const id = Date.now().toString(36) + Math.random().toString(36).substring(2);
+            
+        // 直接创建 Blob URL，避免 Base64 编码的内存膨胀
+        const originalBlobUrl = URL.createObjectURL(file);
+            
+        // 创建图片数据对象
+        const imageData = {
+            id,
+            name: file.name,  // 保留文件扩展名
+            originalName: file.name,
+            url: originalBlobUrl,           // 使用blob URL
+            originalBlobUrl,                // 保存原始 blob URL 以便释放
+            file: file,                     // 关键修复：保存原始 File 对象，用于重新创建 blob URL
+            status: 'original',
+            blob: null,
+            blobUrl: null,
+            size: file.size,
+            width: 0,
+            height: 0,
+            format: file.type.split('/')[1]?.toUpperCase() || 'UNKNOWN', // 图片格式
+            processed: false,
+                
+            // 添加清理方法
+            cleanup: function() {
+                if (this.originalBlobUrl && this.originalBlobUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(this.originalBlobUrl);
+                    console.log('已释放原始 Blob URL:', this.originalBlobUrl);
+                }
+                if (this.blobUrl && this.blobUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(this.blobUrl);
+                    console.log('已释放处理后 Blob URL:', this.blobUrl);
+                }
+                // 清理引用
+                this.originalBlobUrl = null;
+                this.blobUrl = null;
+                this.url = null;
+                this.file = null; // 释放 file 引用
+            }
+        };
+    
+        // 添加到图片数组
+        images.push(imageData);
+        // 渲染图片项到界面
+        renderImageItem(imageData);
+        // 更新图片计数器
+        updateImageCounter();
+        // 隐藏空状态提示
+        hideEmptyState();
+            
+        // 首次导入文件后隐藏说明文字
+        if (!hasImportedFiles) {
+            hasImportedFiles = true;
+            const descriptionText = document.getElementById('description-text');
+            if (descriptionText) {
+                descriptionText.style.display = 'none';
+            }
+        }
+    
+        // 获取图片尺寸
+        const img = new Image();
+        img.onload = () => {
+            imageData.width = img.width;
+            imageData.height = img.height;
+            updateImageInfo(imageData.id);
+        };
+        img.onerror = () => {
+            console.error('图片尺寸获取失败:', file.name);
+            // 设置默认尺寸并在界面显示提示
+            imageData.width = 0;
+            imageData.height = 0;
+            updateImageInfo(imageData.id);
+        };
+        img.src = originalBlobUrl;  // 使用相同的 blob URL
+    }
+
+    /**
+     * 渲染单个图片项到界面
+     * @param {Object} imageData - 图片数据对象
+     *
+     * 创建图片项的DOM元素，包括缩略图、信息显示和操作按钮
+     * 支持预览、选择和单张处理功能
+     */
+    function renderImageItem(imageData) {
+        const imageList = document.getElementById('imageList');
+        const item = document.createElement('div');
+        item.className = 'image-item';
+        item.dataset.id = imageData.id;
+
+        // 创建缩略图容器
+        const thumbnailContainer = document.createElement('div');
+        thumbnailContainer.className = 'thumbnail-container';
+        thumbnailContainer.onclick = () => showPreview(imageData.id);  // 点击预览
+
+        // 创建缩略图
+        const img = document.createElement('img');
+        img.className = 'image-preview';
+        img.src = /** @type {string} */(imageData.url);
+        img.alt = imageData.originalName;
+
+        // 修复图片加载失败问题 - 添加重试限制
+        let retryCount = 0;
+        const MAX_RETRIES = 3;
+        
+        img.onerror = (e) => {
+            retryCount++;
+            if (retryCount <= MAX_RETRIES) {
+                console.warn(`缩略图加载失败，第${retryCount}次重试:`, imageData.name);
+                // 延迟后重新加载
+                setTimeout(() => {
+                    if (imageData.blobUrl) {
+                        e.target.src = imageData.blobUrl;
+                    } else {
+                        e.target.src = imageData.url;
+                    }
+                }, 100 * retryCount); // 递增延迟时间
+            } else {
+                console.error('缩略图加载失败，已达到最大重试次数:', imageData.name);
+                // 显示占位图
+                e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkxvYWQgRmFpbGVkPC90ZXh0Pjwvc3ZnPg==';
+                e.target.alt = '图片加载失败';
+            }
+        };
+
+        thumbnailContainer.appendChild(img);
+
+        // 设置图片项内容（使用HTML转义防止XSS）
+        item.innerHTML = `
+        <input type="checkbox" class="select-checkbox">
+        <div class="image-info" id="info-${imageData.id}">
+            <div class="text-multiline" style="font-weight: bold;">${escapeHtml(imageData.name)}</div>
+            <div class="image-info-row">
+                <span>${imageData.width}×${imageData.height}</span>
+            </div>
+            <div class="file-size">格式: ${imageData.format || 'N/A'} <span class="separator">|</span> ${formatFileSize(imageData.size)}</div>
+            <div class="status-badge status-${imageData.status || 'original'}">原始图片</div>
+        </div>
+        <div class="image-actions">
+            <button class="action-btn" data-operation="encrypt">混淆</button>
+            <button class="action-btn" data-operation="decrypt">解混淆</button>
+            <button class="action-btn" data-operation="restore">还原</button>
+            <div class="action-group">
+                <button class="action-btn delete-btn" data-operation="delete">删除</button>
+                <button class="action-btn" data-operation="save">保存</button>
+            </div>
+        </div>
+    `;
+
+        // 添加事件监听器
+        const checkbox = item.querySelector('.select-checkbox');
+        checkbox.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleSelect(imageData.id, event);
+        });
+
+        // 注意：使用事件委托替代直接绑定，避免创建大量监听器
+        // 实际的事件处理在imageList容器上统一处理
+
+        // 插入缩略图容器到正确位置
+        item.insertBefore(thumbnailContainer, item.firstChild);
+        imageList.appendChild(item);
+    }
+
+    // =============================================
+    // 辅助函数
+    // =============================================
+
+    /**
+     * 格式化文件大小为易读格式
+     * @param {number} bytes - 文件大小（字节）
+     * @returns {string} 格式化后的文件大小字符串
+     *
+     * 支持B、KB、MB、GB四种单位，自动选择合适的单位
+     */
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    /**
+     * 更新图片信息显示
+     * @param {string} imageId - 图片 ID
+     *
+     * 更新图片名称、尺寸、大小和状态信息的显示
+     * 优化：文件名仅在初次渲染时设置，此处仅更新可变部分（尺寸、状态等）
+     */
+    function updateImageInfo(imageId) {
+        const imageData = images.find(img => img.id === imageId);
+        if (!imageData) return;
+    
+        const infoDiv = document.getElementById(`info-${imageId}`);
+        if (infoDiv) {
+            // 获取或创建文件名元素（仅在需要时创建）
+            let fileNameDiv = infoDiv.querySelector('.text-multiline');
+            if (!fileNameDiv) {
+                fileNameDiv = document.createElement('div');
+                fileNameDiv.className = 'text-multiline';
+                fileNameDiv.style.fontWeight = 'bold';
+                infoDiv.insertBefore(fileNameDiv, infoDiv.firstChild);
+            }
+                
+            // 更新尺寸信息
+            const sizeRow = infoDiv.querySelector('.image-info-row');
+            let targetElementForFileSize; // 用于确定文件大小元素的插入位置
+            
+            if (sizeRow) {
+                sizeRow.innerHTML = `<span>${imageData.width > 0 && imageData.height > 0 ? 
+                    `${imageData.width}×${imageData.height}` : 
+                    '<span style="color: #999; font-style: italic;">尺寸未知</span>'}</span>`;
+                targetElementForFileSize = sizeRow;
+            } else {
+                const newRow = document.createElement('div');
+                newRow.className = 'image-info-row';
+                newRow.innerHTML = `<span>${imageData.width > 0 && imageData.height > 0 ? 
+                    `${imageData.width}×${imageData.height}` : 
+                    '<span style="color: #999; font-style: italic;">尺寸未知</span>'}</span>`;
+                infoDiv.insertBefore(newRow, fileNameDiv.nextSibling);
+                targetElementForFileSize = newRow;
+            }
+                
+            // 更新格式和大小信息
+            const fileSizeDiv = infoDiv.querySelector('.file-size');
+            if (fileSizeDiv) {
+                fileSizeDiv.textContent = `格式：${imageData.format || 'N/A'} | ${formatFileSize(imageData.size)}`;
+            } else {
+                const newFileSizeDiv = document.createElement('div');
+                newFileSizeDiv.className = 'file-size';
+                newFileSizeDiv.textContent = `格式：${imageData.format || 'N/A'} | ${formatFileSize(imageData.size)}`;
+                infoDiv.insertBefore(newFileSizeDiv, targetElementForFileSize.nextSibling);
+            }
+                
+            // 更新状态徽章
+            const statusBadge = infoDiv.querySelector('.status-badge');
+            if (statusBadge) {
+                statusBadge.className = `status-badge status-${imageData.status}`;
+                statusBadge.textContent = imageData.status === 'original' ? '原始图片' :
+                                         imageData.status === 'encrypted' ? '已混淆' : '已解混淆';
+            } else {
+                const newStatusBadge = document.createElement('div');
+                newStatusBadge.className = `status-badge status-${imageData.status}`;
+                newStatusBadge.textContent = imageData.status === 'original' ? '原始图片' :
+                                            imageData.status === 'encrypted' ? '已混淆' : '已解混淆';
+                infoDiv.appendChild(newStatusBadge);
+            }
+        }
+    }
+
+    /**
+     * 更新图片状态显示
+     * @param {string} imageId - 图片ID
+     *
+     * 调用updateImageInfo函数更新状态显示
+     */
+    function updateImageStatus(imageId) {
+        const imageData = images.find(img => img.id === imageId);
+        if (!imageData) return;
+
+        updateImageInfo(imageId);
+    }
+
+
+
+
+
+    /**
+     * 更新图片计数器
+     *
+     * 显示当前图片总数
+     */
+    function updateImageCounter() {
+        document.getElementById('imageCounter').textContent = `共 ${images.length} 张图片`;
+    }
+
+    /**
+     * 隐藏空状态提示
+     *
+     * 当有图片时隐藏"暂无图片"提示
+     */
+    function hideEmptyState() {
+        const emptyState = document.getElementById('emptyState');
+        if (emptyState) {
+            emptyState.style.display = 'none';
+        }
+    }
+
+    /**
+     * 显示空状态提示
+     *
+     * 当没有图片时显示"暂无图片"提示
+     */
+    function showEmptyState() {
+        const emptyState = document.getElementById('emptyState');
+        if (emptyState) {
+            emptyState.style.display = 'block';
+        }
+    }
+
+    // =============================================
+    // 选择功能函数
+    // =============================================
+
+    /**
+     * 切换图片选择状态
+     * @param {string} imageId - 图片ID
+     * @param {Event} event - 事件对象
+     *
+     * 切换单张图片的选择状态，更新UI显示
+     */
+    function toggleSelect(imageId, event) {
+        event.stopPropagation();  // 阻止事件冒泡
+
+        const item = document.querySelector(`[data-id="${imageId}"]`);
+        const checkbox = item ? item.querySelector('.select-checkbox') : null;
+        
+        if (selectedImages.has(imageId)) {
+            selectedImages.delete(imageId);
+            if (item) item.classList.remove('selected');
+            if (checkbox) checkbox.checked = false;  // 显式设置复选框状态
+        } else {
+            selectedImages.add(imageId);
+            if (item) item.classList.add('selected');
+            if (checkbox) checkbox.checked = true;   // 显式设置复选框状态
+        }
+    }
+
+    /**
+     * 全选图片
+     *
+     * 选择所有图片，更新选中状态和UI显示
+     */
+    function selectAll() {
+        selectedImages.clear();
+        images.forEach(img => {
+            selectedImages.add(img.id);
+            const item = document.querySelector(`[data-id="${img.id}"]`);
+            if (item) {
+                item.classList.add('selected');
+                const checkbox = item.querySelector('.select-checkbox');
+                if (checkbox) checkbox.checked = true;
+            }
+        });
+    }
+
+    /**
+     * 清空选择
+     *
+     * 取消所有图片的选择状态
+     */
+    function clearSelection() {
+        // 使用Array.from创建快照，避免在遍历时直接修改Set
+        Array.from(selectedImages).forEach(imageId => {
+            const item = document.querySelector(`[data-id="${imageId}"]`);
+            if (item) {
+                item.classList.remove('selected');
+                const checkbox = item.querySelector('.select-checkbox');
+                if (checkbox) checkbox.checked = false;
+            }
+        });
+        selectedImages.clear();
+    }
+
+    /**
+     * 清空所有图片
+     *
+     * 释放所有资源，清空图片列表和选择状态
+     */
+    function clearAll() {
+        if (isProcessing) {
+            alert('正在处理中，请稍后...');
+            return;
+        }
+        // 统一调用cleanup方法释放所有资源（避免内存泄漏）
+        images.forEach(img => {
+            if (typeof img.cleanup === 'function') {
+                img.cleanup();
+            } else {
+                // 兼容旧版本的数据结构
+                if (img.blobUrl && img.blobUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(img.blobUrl);
+                }
+                if (img.originalBlobUrl && img.originalBlobUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(img.originalBlobUrl);
+                }
+            }
+        });
+
+        // 重置所有状态
+        images = [];
+        selectedImages.clear();
+        // 清空图片列表，使用空白占位
+        document.getElementById('imageList').innerHTML = '<div class="empty-state" id="emptyState"></div>';
+        document.getElementById('batchStatus').innerHTML = '';
+        updateImageCounter();
+        
+        // 清理viewer实例
+        if (viewerInstance) {
+            try {
+                viewerInstance.destroy();
+                console.log('已销毁viewer实例');
+            } catch (error) {
+                console.warn('销毁viewer实例时出错:', error);
+            }
+            viewerInstance = null;
+        }
+    }
+
+    /**
+     * 删除单张图片
+     * @param {string} imageId - 要删除的图片ID
+     * 
+     * 从数组和DOM中移除图片，同时释放Blob URL资源
+     */
+    function deleteSingleImage(imageId) {
+        if (isProcessing) {
+            alert('正在处理中，请稍后...');
+            return;
+        }
+        
+        const imageData = images.find(img => img.id === imageId);
+        if (!imageData) {
+            console.warn('未找到要删除的图片:', imageId);
+            return;
+        }
+        
+        // 直接删除，不弹出确认对话框
+        
+        try {
+            // 从DOM中移除图片项
+            const item = document.querySelector(`[data-id="${imageId}"]`);
+            if (item) {
+                item.remove();
+            }
+            
+            // 使用新的cleanup方法释放所有Blob URL资源
+            if (typeof imageData.cleanup === 'function') {
+                imageData.cleanup();
+            } else {
+                // 兼容旧版本的清理逻辑
+                if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(imageData.blobUrl);
+                    console.log('已释放处理后Blob URL:', imageData.blobUrl);
+                }
+                
+                if (imageData.originalBlobUrl && imageData.originalBlobUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(imageData.originalBlobUrl);
+                    console.log('已释放原始Blob URL:', imageData.originalBlobUrl);
+                }
+            }
+            
+            // 从数组中移除图片数据
+            images = images.filter(img => img.id !== imageId);
+            
+            // 从选中集合中移除
+            selectedImages.delete(imageId);
+            
+            // 更新计数器
+            updateImageCounter();
+            
+            // 如果没有图片了，显示空状态
+            if (images.length === 0) {
+                showEmptyState();
+            }
+            
+            console.log('已删除图片:', imageData.name);
+        } catch (error) {
+            console.error('删除图片时出错:', error);
+            alert('删除图片失败: ' + (error.message || '未知错误'));
+        }
+    }
+    
+    // =============================================
+    // 单张图片处理函数
+    // =============================================
+
+    /**
+     * 处理单张图片（用户界面调用）
+     * 提供用户界面级别的单张图片处理功能
+     * 
+     * @param {string} imageId - 图片ID
+     * @param {string} operation - 操作类型：'encrypt'|'decrypt'|'restore'|'save'
+     */
+    async function processSingle(imageId, operation) {
+        if (isProcessing) return;
+
+        isProcessing = true;
+        const imageData = images.find(img => img.id === imageId);
+        if (!imageData) {
+            isProcessing = false;
+            return;
+        }
+
+        const statusDiv = document.getElementById('batchStatus');
+        
+        try {
+            if (operation === 'save') {
+                // 保存操作：调用单独的保存函数
+                await saveSingleImage(imageId);
+            } else {
+                // 显示处理中遮罩
+                const item = document.querySelector(`[data-id="${imageId}"]`);
+                let overlay = null;
+                if (item) {
+                    overlay = document.createElement('div');
+                    overlay.className = 'processing-overlay';
+                    overlay.innerHTML = '<div class="loading"></div>';
+                    item.querySelector('.thumbnail-container').appendChild(overlay);
+                }
+
+                await processSingleImage(imageData, operation);
+
+                statusDiv.innerHTML = `✅ "${imageData.name}" 处理完成`;
+                setTimeout(() => statusDiv.innerHTML = '', 2000);
+            }
+        } catch (error) {
+            console.error('处理失败:', error);
+            statusDiv.innerHTML = `❌ "${imageData.name}" 处理失败`;
+            setTimeout(() => statusDiv.innerHTML = '', 2000);
+        } finally {
+            // 简化遮罩清理：直接移除overlay（如果存在）
+            if (operation !== 'save') {
+                const overlay = document.querySelector(`[data-id="${imageId}"] .processing-overlay`);
+                overlay?.remove();
+            }
+            isProcessing = false;
+        }
+    }
+
+    /**
+     * 保存单张图片到本地
+     * @param {string} imageId - 图片ID
+     *
+     * 根据当前图片状态和用户选择的格式保存单张图片
+     */
+    async function saveSingleImage(imageId) {
+        const imageData = images.find(img => img.id === imageId);
+        if (!imageData) {
+            console.error('未找到指定图片:', imageId);
+            return;
+        }
+
+        // 获取用户选择的保存格式
+        const format = document.getElementById('save-format-select').value;
+
+        const statusDiv = document.getElementById('batchStatus');
+        statusDiv.innerHTML = `<div class="loading"></div> 正在保存 "${imageData.name}"...`;
+
+        try {
+            await saveImageInFormat(imageData, format);
+            
+            statusDiv.innerHTML = `✅ "${imageData.name}" 保存完成`;
+            setTimeout(() => statusDiv.innerHTML = '', 2000);
+        } catch (error) {
+            console.error('保存失败:', error);
+            statusDiv.innerHTML = `❌ "${imageData.name}" 保存失败`;
+            setTimeout(() => statusDiv.innerHTML = '', 2000);
+        }
+    }
+
+    // =============================================
+    // 拖拽功能
+    // =============================================
+
+    const dropZone = document.getElementById('dropZone');
+
+    // 拖拽进入事件：添加视觉反馈
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+
+    // 拖拽离开事件：移除视觉反馈
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('drag-over');
+    });
+
+    // 拖拽放置事件：处理拖拽的文件
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+
+        // 不再仅依赖MIME类型过滤，而是使用更严格的校验
+        const files = Array.from(e.dataTransfer.files);
+
+        if (files.length > 0) {
+            handleFiles(files);
+        }
+    });
+
+    // 点击拖拽区域：触发文件选择
+    dropZone.addEventListener('click', () => {
+        document.getElementById('add-images').click();
+    });
+
+    /**
+     * 处理文件添加
+     * @param {File[]} files - 文件数组
+     *
+     * 处理通过拖拽或文件选择添加的图片文件
+     */
+    function handleFiles(files) {
+        let addedCount = 0;
+        let errorCount = 0;
+
+        files.forEach(file => {
+            // 校验文件是否为图片
+            if (!isValidImageFile(file)) {
+                logError(file.name, '不是有效的图片文件');
+                errorCount++;
+                return;
+            }
+
+            // 移除文件大小限制，可以处理任意大小的图片
+            addImage(file);
+            addedCount++;
+        });
+
+        let message = '';
+        if (addedCount > 0 && errorCount > 0) {
+            message = `✅ 已添加 ${addedCount} 张图片，❌ ${errorCount} 个文件被拒绝`;
+        } else if (addedCount > 0) {
+            message = `✅ 已添加 ${addedCount} 张图片`;
+        } else if (errorCount > 0) {
+            message = `❌ 所有 ${errorCount} 个文件都被拒绝`;
+        }
+
+        if (message) {
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = message;
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+        }
+    }
+
+
+
+    /**
+     * 验证文件是否为图片
+     * @param {File} file - 文件对象
+     * @returns {boolean} 是否为有效的图片文件
+     *
+     * 检查文件的MIME类型和扩展名来确定是否为图片
+     */
+    function isValidImageFile(file) {
+        // 检查MIME类型
+        const validMimeTypes = [
+            'image/jpeg',
+            'image/jpg',
+            'image/png',
+            'image/gif',
+            'image/webp',
+            'image/svg+xml',
+            'image/bmp',
+            'image/tiff'
+        ];
+
+        if (validMimeTypes.includes(file.type.toLowerCase())) {
+            return true;
+        }
+
+        // 检查文件扩展名
+        const fileName = file.name.toLowerCase();
+        const validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.svg'];
+
+        return validExtensions.some(ext => fileName.endsWith(ext));
+    }
+
+    /**
+     * 清空错误日志
+     *
+     * 统一调用ErrorLogManager.clear()来清空所有错误日志数据和UI
+     */
+    function clearErrorLog() {
+        const errorLogContent = document.getElementById('errorLogContent');
+        const errorLogPanel = document.getElementById('errorLogPanel');
+        
+        // 调用ErrorLogManager统一清理所有日志数据和资源
+        ErrorLogManager.clear();
+        
+        // 清空DOM内容
+        errorLogContent.innerHTML = '';
+        
+        // 隐藏错误日志面板
+        errorLogPanel.style.display = 'none';
+        
+        console.log('✅ 错误日志已清空并释放相关资源');
+    }
+
+    // =============================================
+    // 事件监听器设置
+    // =============================================
+
+    // 文件选择事件
+    document.getElementById('add-images').addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length > 0) {
+            handleFiles(files);
+            e.target.value = ''; // 清除选择，以便可以再次选择相同文件
+        }
+    });
+
+    // 清空错误日志按钮事件
+    document.getElementById('clearErrorLog').addEventListener('click', clearErrorLog);
+
+    // 按钮事件绑定
+    document.getElementById('select-all').addEventListener('click', selectAll);
+    document.getElementById('clear-selection').addEventListener('click', clearSelection);
+    document.getElementById('clear-all').addEventListener('click', clearAll);
+
+    // 处理按钮事件绑定
+    document.getElementById('encrypt-btn').addEventListener('click', () => processBatch('encrypt'));
+    document.getElementById('decrypt-btn').addEventListener('click', () => processBatch('decrypt'));
+    document.getElementById('restore-btn').addEventListener('click', () => processBatch('restore'));
+
+    document.getElementById('save-format-btn').addEventListener('click', () => {
+        const format = document.getElementById('save-format-select').value;
+        saveImages(format);
+    });
+
+    // 使用 Viewer.js 的 showPreview 函数
+    
+    // 图片预加载管理器已被移除（取消按需加载功能）
+    
+    /**
+     * 按照 Viewer.js 最佳实践实现的图片预览功能
+     * @param {string} imageId - 要预览的图片 ID
+     * 
+     * 遵循 Viewer.js 官方推荐的实现方式：
+     * 1. 使用图片容器作为 Viewer 的目标元素
+     * 2. 利用 Viewer.js 的内置生命周期事件
+     * 3. 实现完善的资源管理和错误处理
+     * 4. 支持优雅降级到基础查看器
+     * 
+     * 新增取消机制防止竞态条件：
+     * - 使用取消令牌避免多个预览实例同时存在
+     * - 快速连续点击时自动取消前一个操作
+     */
+    async function showPreview(imageId) {
+        const imageData = images.find(img => img.id === imageId);
+        if (!imageData) {
+            console.warn('未找到指定图片:', imageId);
+            return;
+        }
+        
+        // 1. 彻底清理所有残留预览容器和实例
+        const existingContainers = document.querySelectorAll('.image-gallery-container');
+        existingContainers.forEach(container => {
+            if (container.parentNode) container.parentNode.removeChild(container);
+        });
+        cleanupExistingViewer();
+        
+        // 2. 重置取消标志和控制器
+        previewCanceled = false;
+        currentPreviewController = new AbortController();
+        
+        // 3. 创建新容器
+        const galleryContainer = createImageGalleryContainer();
+                
+        try {
+            // 4. 等待 Viewer 资源加载并初始化
+            await getViewerLoadPromise();
+                
+            if (previewCanceled) {
+                if (galleryContainer.parentNode) galleryContainer.parentNode.removeChild(galleryContainer);
+                return;
+            }
+                
+            if (!window.Viewer) throw new Error('Viewer.js 不可用');
+                
+            await initializeViewerWithBestPractices(imageData, galleryContainer, imageId);
+        } catch (error) {
+            if (previewCanceled) return;
+            console.error('Viewer 初始化失败:', error);
+            handleViewerInitializationFailure(galleryContainer, imageData);
+        }
+    }
+
+    /**
+     * 取消之前的预览操作
+     * 防止多个预览实例同时存在造成内存泄漏
+     */
+    function cancelPreviousPreview() {
+        // 设置取消标志
+        previewCanceled = true;
+        
+        // 取消之前的Promise链
+        if (currentPreviewController) {
+            currentPreviewController.abort();
+            currentPreviewController = null;
+        }
+        
+        // 清理已存在的viewer实例
+        cleanupExistingViewer();
+        
+        console.log('🔄 已取消之前的预览操作');
+    }
+    
+    /**
+     * 清理已存在的 viewer 实例
+     */
+    function cleanupExistingViewer() {
+        if (viewerInstance) {
+            try {
+                viewerInstance.destroy();
+                console.log('✅ 已销毁之前的 viewer 实例');
+            } catch (error) {
+                console.warn('⚠️ 销毁 viewer 实例时出错:', error);
+            } finally {
+                viewerInstance = null;
+            }
+        }
+        // 额外清理所有残留容器
+        document.querySelectorAll('.image-gallery-container').forEach(container => {
+            if (container.parentNode) container.parentNode.removeChild(container);
+        });
+    }
+
+    /**
+     * 创建图片画廊容器
+     * @returns {HTMLElement} 容器元素
+     */
+    function createImageGalleryContainer() {
+        const container = document.createElement('div');
+        container.className = 'image-gallery-container';
+        container.style.cssText = `
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 0;
+            overflow: hidden;
+        `;
+        
+        // 预先创建所有图片元素，并等待它们加载完成
+        const loadPromises = images.map((imgData, index) => {
+            return new Promise((resolve, reject) => {
+                const img = document.createElement('img');
+                
+                // 关键修复：检查并重新创建有效的 Blob URL
+                let validBlobUrl = imgData.blobUrl || imgData.originalBlobUrl || imgData.url;
+                
+                // 如果 blob URL 已失效，重新创建
+                if (validBlobUrl && validBlobUrl.startsWith('blob:') && imgData.file) {
+                    try {
+                        // 测试 blob URL 是否有效
+                        const testImg = new Image();
+                        testImg.onload = () => {
+                            // URL 有效，继续使用
+                            console.log(`✅ Blob URL 有效：${imgData.name}`);
+                        };
+                        testImg.onerror = () => {
+                            // URL 失效，重新创建
+                            console.warn(`⚠️ Blob URL 已失效，重新创建：${imgData.name}`);
+                            validBlobUrl = URL.createObjectURL(imgData.file);
+                            imgData.blobUrl = validBlobUrl; // 更新引用
+                        };
+                        testImg.src = validBlobUrl;
+                    } catch (e) {
+                        console.error('Blob URL 检查失败:', e);
+                        validBlobUrl = URL.createObjectURL(imgData.file);
+                        imgData.blobUrl = validBlobUrl;
+                    }
+                }
+                
+                img.src = validBlobUrl;
+                img.alt = imgData.name || `图片 ${index + 1}`;
+                img.dataset.imageId = imgData.id;
+                img.dataset.index = index.toString();
+                img.loading = 'eager';
+                
+                // 设置加载超时（5 秒）
+                const timeoutId = setTimeout(() => {
+                    console.warn(`⏰ 图片 ${imgData.name} 加载超时`);
+                    reject(new Error(`图片加载超时：${imgData.name}`));
+                }, 5000);
+                
+                img.onload = function() {
+                    clearTimeout(timeoutId);
+                    console.log(`✅ 图片 ${img.alt} 加载完成 (${img.naturalWidth}x${img.naturalHeight})`);
+                    resolve(img);
+                };
+                
+                img.onerror = function() {
+                    clearTimeout(timeoutId);
+                    console.error(`❌ 图片 ${imgData.name} 加载失败`);
+                    
+                    // 尝试重新创建 blob URL（如果是 blob URL 失败）
+                    if (imgData.file) {
+                        console.log('🔄 尝试从原文件重新创建 blob URL');
+                        try {
+                            const newBlobUrl = URL.createObjectURL(imgData.file);
+                            imgData.blobUrl = newBlobUrl;
+                            img.src = newBlobUrl;
+                            console.log('🔄 已重新创建 blob URL，再次尝试加载');
+                        } catch (e) {
+                            console.error('无法重新创建 blob URL:', e);
+                            this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkxvYWQgRmFpbGVkPC90ZXh0Pjwvc3ZnPg==';
+                            resolve(img); // 即使失败也继续
+                        }
+                    } else {
+                        this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkxvYWQgRmFpbGVkPC90ZXh0Pjwvc3ZnPg==';
+                        resolve(img); // 即使失败也继续
+                    }
+                };
+                
+                container.appendChild(img);
+            });
+        });
+        
+        // 存储加载 Promise 到容器
+        container._loadPromises = Promise.allSettled(loadPromises);
+        
+        document.body.appendChild(container);
+        return container;
+    }
+
+    /**
+     * 在 Viewer.js 准备就绪后初始化查看器
+     * @param {Object} imageData - 图片数据
+     * @param {HTMLElement} container - 容器元素
+     * @param {string} targetImageId - 目标图片 ID
+     */
+    async function initializeViewerWhenReady(imageData, container, targetImageId) {
+        // 检查是否已被取消
+        if (previewCanceled) {
+            console.log('⏭️ 预览操作已被取消，跳过初始化');
+            // 清理容器
+            if (container && container.parentNode) {
+                container.parentNode.removeChild(container);
+            }
+            return;
+        }
+            
+        try {
+            await getViewerLoadPromise();
+                
+            // 再次检查取消状态
+            if (previewCanceled) {
+                console.log('⏭️ 预览操作已被取消，跳过 Viewer 初始化');
+                // 清理容器
+                if (container && container.parentNode) {
+                    container.parentNode.removeChild(container);
+                }
+                return;
+            }
+                
+            if (!isViewerAvailable()) {
+                throw new Error('Viewer.js 构造函数不可用');
+            }
+            await initializeViewerWithBestPractices(imageData, container, targetImageId);
+        } catch (error) {
+            // 检查是否因取消而产生的错误
+            if (previewCanceled) {
+                console.log('⏭️ 预览操作已被取消，忽略错误:', error.message);
+                return;
+            }
+                
+            console.error('❌ Viewer.js 初始化失败:', error);
+            handleViewerInitializationFailure(container, imageData);
+        }
+    }
+
+    /**
+     * 检查Viewer.js是否可用
+     * @returns {boolean} 是否可用
+     */
+    function isViewerAvailable() {
+        return window.hasOwnProperty('Viewer') && 
+               typeof window.Viewer === 'function';
+    }
+        
+    /**
+     * 按照最佳实践初始化 Viewer.js
+     * @param {Object} imageData - 图片数据
+     * @param {HTMLElement} container - 容器元素
+     * @param {string} targetImageId - 目标图片 ID
+     */
+    async function initializeViewerWithBestPractices(imageData, container, targetImageId) {
+        // 最终检查取消状态
+        if (previewCanceled) {
+            console.log('⏭️ 预览操作已被取消，跳过 Viewer 实例创建');
+            // 清理容器
+            if (container && container.parentNode) {
+                container.parentNode.removeChild(container);
+            }
+            return;
+        }
+            
+        try {
+            // 等待所有图片至少尝试加载完成
+            if (container._loadPromises) {
+                console.log('⏳ 等待图片加载完成...');
+                await container._loadPromises;
+                console.log('✅ 所有图片加载尝试完成');
+            }
+                
+            // 额外等待一小段时间，确保 DOM 渲染完成
+            await new Promise(resolve => setTimeout(resolve, 100));
+                
+            // @ts-ignore - Viewer.js 是动态加载的，忽略类型检查
+            const ViewerConstructor = window.Viewer;
+                
+            viewerInstance = new ViewerConstructor(container, {
+                // 基础配置
+                inline: false,
+                backdrop: true,
+                loading: true,
+                
+                // 导航和交互
+                keyboard: true,
+                focus: true,
+				loop: true,
+                
+                // UI组件
+                button: true,
+                navbar: true,
+                toolbar: getOptimizedToolbarConfig(),
+                title: false,
+                
+                // 行为配置
+                movable: true,
+                zoomable: true,
+                rotatable: true,
+                scalable: true,
+                transition: false,   // 关闭动画
+                fullscreen: true,
+                loop: true,
+                
+                // 过滤器：优化图片加载判断逻辑
+                filter(image) {
+                    // 更宽松的图片过滤条件，确保所有图片都能被加载
+                    const isLoaded = image.complete || image.readyState === 4 || image.naturalWidth > 0;
+                    if (isLoaded) {
+                        return true;
+                    }
+                    // 对于未完成加载的图片，也允许 Viewer.js 加载
+                    // Viewer.js 会在内部等待图片加载完成
+                    console.log(`🔄 图片 ${image.alt} 尚未完全加载，Viewer.js 将等待其加载完成`);
+                    return true;
+                },
+                
+                // 生命周期事件
+                ready() {
+                    console.log('✅ Viewer.js 已准备就绪');
+                    // Viewer 准备好后，再次检查图片加载状态
+                    const viewerImages = container.querySelectorAll('img');
+                    viewerImages.forEach((img, idx) => {
+                        if (img.complete && img.naturalWidth > 0) {
+                            console.log(`✅ 图片 ${idx + 1}/${viewerImages.length} 已加载完成`);
+                        } else {
+                            console.log(`⏳ 图片 ${idx + 1}/${viewerImages.length} 仍在加载中...`);
+                        }
+                    });
+                },
+                                
+                shown() {
+                    console.log('✅ Viewer.js 已显示');
+                },
+                                
+                viewed(event) {
+                    const { detail } = event;
+                    const currentImage = detail.image;
+                    const currentIndex = detail.index;
+                    console.log(`✅ 当前查看图片：${currentImage.alt || '未知'} (索引：${currentIndex})`);
+                                    
+                    // 每次切换图片时检查加载状态
+                    if (!currentImage.complete || currentImage.naturalWidth === 0) {
+                        console.warn('⚠️ 当前图片尚未加载完成');
+                    }
+                },
+                
+                hide() {
+                    console.log('ℹ️ Viewer.js 开始隐藏');
+                },
+                
+                hidden() {
+                    console.log('✅ Viewer.js 已隐藏');
+                    cleanupViewerResources(container);
+                },
+                
+                play() {
+                    console.log('▶️ 全屏');
+                }
+            });
+            
+            // 显示查看器
+            viewerInstance.show();
+            
+            // 定位到目标图片
+            const targetIndex = images.findIndex(img => img.id === targetImageId);
+            if (targetIndex >= 0) {
+                viewerInstance.view(targetIndex);
+                console.log(`🎯 定位到目标图片 (索引: ${targetIndex})`);
+            }
+            
+        } catch (error) {
+            console.error('❌ Viewer.js 初始化过程中发生错误:', error);
+            handleViewerInitializationFailure(container, imageData);
+        }
+    }
+
+    /**
+     * 获取优化的工具栏配置
+     * @returns {Object} 工具栏配置
+     */
+    function getOptimizedToolbarConfig() {
+        return {
+            zoomIn: 1,
+            zoomOut: 1,
+            oneToOne: 1,
+            reset: 1,
+            prev: 1,
+            play: {
+                show: 1,
+                size: 'large'
+            },
+            next: 1,
+            rotateLeft: 1,
+            rotateRight: 1,
+            flipHorizontal: 1,
+            flipVertical: 1
+        };
+    }
+
+    /**
+     * 获取图片标题函数
+     * @returns {Function} 标题生成函数
+     */
+    function getImageTitleFunction() {
+        return (image, imageData) => {
+            const baseName = image.alt || '未知图片';
+            const dimensions = imageData.naturalWidth && imageData.naturalHeight 
+                ? ` (${imageData.naturalWidth} × ${imageData.naturalHeight})`
+                : '';
+            const currentIndex = Array.from(image.parentNode.children).indexOf(image) + 1;
+            const totalImages = image.parentNode.children.length;
+            
+            return `${baseName}${dimensions} - ${currentIndex}/${totalImages}`;
+        };
+    }
+
+    /**
+     * 处理Viewer.js初始化失败的情况
+     * @param {HTMLElement} container - 容器元素
+     * @param {Object} imageData - 图片数据
+     */
+    function handleViewerInitializationFailure(container, imageData) {
+        // 检查是否因取消而失败
+        if (previewCanceled) {
+            console.log('⏭️ 预览操作已被取消，跳过失败处理');
+            // 清理容器
+            if (container && container.parentNode) {
+                container.parentNode.removeChild(container);
+            }
+            return;
+        }
+        
+        // 清理容器
+        if (container && container.parentNode) {
+            container.parentNode.removeChild(container);
+        }
+        
+        // 启用基础图片查看器作为兜底方案
+        console.log('ℹ️ 启用基础图片查看器作为替代方案');
+        showBasicImageViewer(imageData);
+    }
+
+    /**
+     * 清理 Viewer.js 相关资源
+     * @param {HTMLElement} container - 容器元素
+     */
+    function cleanupViewerResources(container) {
+        if (viewerInstance) {
+            try {
+                viewerInstance.destroy();
+            } catch (e) {
+                console.warn('销毁 Viewer 实例出错:', e);
+            }
+            viewerInstance = null;
+        }
+        if (container && container.parentNode) {
+            container.parentNode.removeChild(container);
+        }
+        console.log('✅ Viewer.js 资源已清理');
+    }
+    
+    /**
+     * 窗口大小改变时的防抖处理
+     * 避免频繁调用 update 导致性能问题
+     */
+    let resizeDebounceTimer = null;
+    function handleWindowResize() {
+        // 清除之前的定时器
+        if (resizeDebounceTimer) {
+            clearTimeout(resizeDebounceTimer);
+        }
+        
+        // 防抖延迟 150ms
+        resizeDebounceTimer = setTimeout(() => {
+            if (viewerInstance && viewerInstance.update) {
+                viewerInstance.update();
+                console.log('🪟 窗口大小改变，已更新 Viewer 布局');
+            }
+        }, 150);
+    }
+
+
+    // 页面卸载时清理Canvas池和Promise，释放内存
+    window.addEventListener('beforeunload', () => {
+        // 清理所有Canvas池
+        clearAllCanvasPools();
+                
+        // 重置Viewer加载Promise状态
+        window.viewerLoadPromise = null;
+        console.log('页面卸载：已重置Viewer加载Promise');
+        
+        // 清空像素缓冲区池
+        pixelBufferPool.length = 0;
+        console.log('页面卸载：已清空像素缓冲区池');
+        
+        // 清理所有残留的处理遮罩层
+        const cleanedOverlays = cleanupAllProcessingOverlays();
+        if (cleanedOverlays > 0) {
+            console.log(`页面卸载时清理了 ${cleanedOverlays} 个遮罩层`);
+        }
+        
+        // 清理所有图片的Blob URL资源
+        cleanupAllImageResources();
+    });
+    
+    // 页面可见性变化处理
+    window.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            // 页面隐藏时的智能清理策略
+            smartClearCanvasPools();
+            
+            // 清理残留的处理遮罩层
+            cleanupAllProcessingOverlays();
+            
+            // 清空像素缓冲区池
+            pixelBufferPool.length = 0;
+            console.log('页面隐藏：已执行智能Canvas池清理');
+        } else {
+            // 页面重新可见时预创建常用尺寸的Canvas
+            preCreateCommonCanvases();
+            console.log('页面可见：已预创建常用Canvas');
+        }
+    });
+    
+    // 显示开源许可证信息
+    function showLicenseInfo() {
+        // 保存整个页脚内容
+        const footerContent = document.querySelector('body').lastElementChild.outerHTML;
+        
+        // 直接替换页脚内容为许可证内容
+        document.querySelector('body').lastElementChild.outerHTML = `
+<div style="width: 100vw; height: 100vh; position: fixed; top: 0; left: 0; background: white; padding: 20px; box-sizing: border-box; overflow-y: auto;">
+    <div style="max-width: 100%; margin: 0 auto; padding: 20px;">
+        <h1 style="color: #333; text-align: center; margin-bottom: 30px; font-size: 2em;">开源许可证</h1>
+        
+        <h2 style="color: #0091ff; margin: 30px 0 15px 0; border-bottom: 2px solid #0091ff; padding-bottom: 5px;">Image Obfuscation Tool</h2>
+        <div style="white-space: pre-wrap; font-family: 'Courier New', monospace; background: #f8f8f8; padding: 25px; border-radius: 4px; border-left: 4px solid #0091ff; margin-bottom: 30px;">
+MIT License
+
+Copyright © 2026 cnpxs1
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+        </div>
+        
+        <h2 style="color: #0091ff; margin: 30px 0 15px 0; border-bottom: 2px solid #0091ff; padding-bottom: 5px;"><a href="https://github.com/fengyuanchen/viewerjs" target="_blank" style="color: #0091ff; text-decoration: underline;">Viewer.js</a></h2>
+        <p style="color: #666; font-style: italic; margin-bottom: 15px;">JavaScript 图像查看器</p>
+        <div style="white-space: pre-wrap; font-family: 'Courier New', monospace; background: #f8f8f8; padding: 25px; border-radius: 4px; border-left: 4px solid #0091ff; margin-bottom: 30px;">
+The MIT License (MIT)
+
+Copyright 2015-present Chen Fengyuan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px;">
+            <button onclick="goBackToMain()" style="background: #0091ff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;">关闭</button>
+        </div>
+    </div>
+</div>`;
+        
+        // 添加返回函数
+        window.goBackToMain = function() {
+            // 恢复页脚内容
+            document.querySelector('body').lastElementChild.outerHTML = footerContent;
+            // 重新绑定事件
+            setTimeout(() => {
+                bindFooterEvents();
+            }, 100);
+        };
+    }
+    
+    // 绑定页脚事件
+    function bindFooterEvents() {
+        const licenseLink = document.querySelector('a[onclick*="showLicenseInfo"]');
+        if (licenseLink) {
+            licenseLink.onclick = function(e) {
+                e.preventDefault();
+                showLicenseInfo();
+                return false;
+            };
+        }
+    }
+    
+    // 页面加载完成后绑定事件
+    document.addEventListener('DOMContentLoaded', function() {
+        bindFooterEvents();
+            
+        // 全局 resize 监听：窗口大小改变时更新 Viewer 布局（带防抖）
+        window.addEventListener('resize', handleWindowResize);
+            
+        // 事件委托：在 imageList 容器上统一处理图片项按钮点击事件
+        const imageList = document.getElementById('imageList');
+        if (imageList) {
+            imageList.addEventListener('click', function(event) {
+                // 检查点击的目标是否是操作按钮
+                const actionButton = event.target.closest('.action-btn');
+                if (actionButton) {
+                    event.stopPropagation();
+                    const operation = actionButton.getAttribute('data-operation');
+                    const imageItem = actionButton.closest('.image-item');
+                    
+                    if (imageItem && operation) {
+                        const imageId = imageItem.dataset.id;
+                        
+                        if (operation === 'delete') {
+                            deleteSingleImage(imageId);
+                        } else {
+                            processSingle(imageId, operation);
+                        }
+                    }
+                }
+            });
+        }
+    });
+</script>
+<!-- 页面底部信息 -->
+<div class="footer" style="display: flex; justify-content: space-between; align-items: center; margin: auto 0 0; padding: 10px 20px; color: #666; font-size: 0.9em; max-width: 100%; border-top: 1px solid #eee;">
+    <span>仅供技术交流使用</span>
+    <a href="#" onclick="showLicenseInfo(); return false;" style="color: #666; text-decoration: underline; cursor: pointer;">开源许可证</a>
+</div>
+</body>
+</html>
