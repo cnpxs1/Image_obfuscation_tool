@@ -1096,12 +1096,144 @@
     }
     
     // =============================================
+    // 统一存储抽象层 (StorageAdapter)
+    // =============================================
+
+    /**
+     * 根据当前环境选择存储后端
+     * - 非 file 协议且支持 Cache API 时使用 CacheStorage（性能更优）
+     * - 否则降级使用 IndexedDB
+     */
+    class StorageAdapter {
+        constructor() {
+            this.backend = null;
+            this.isCacheApi = false;
+            this.dbName = 'ImageObfuscationDB';
+            this.storeName = 'imageBlobs';
+            this.db = null;
+            this.cacheName = 'image-obfuscation-cache-v1';
+            this.ready = this._init();
+        }
+    
+        async _init() {
+            // 检测是否可以使用 Cache API（排除 file:// 协议）
+            const isCacheSupported = typeof window.caches !== 'undefined' && location.protocol !== 'file:';
+            if (isCacheSupported) {
+                try {
+                    // 尝试打开缓存，验证可用性
+                    await caches.open(this.cacheName);
+                    this.isCacheApi = true;
+                    this.backend = await caches.open(this.cacheName);
+                    console.log('✅ 使用 Cache API 作为存储后端');
+                    return;
+                } catch (e) {
+                    console.warn('Cache API 不可用，降级到 IndexedDB', e);
+                }
+            }
+            // 降级到 IndexedDB
+            this.isCacheApi = false;
+            await this._initIndexedDB();
+            console.log('✅ 使用 IndexedDB 作为存储后端');
+        }
+    
+        async _initIndexedDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(this.dbName, 1);
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                    this.db = request.result;
+                    resolve();
+                };
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(this.storeName)) {
+                        db.createObjectStore(this.storeName);
+                    }
+                };
+            });
+        }
+    
+        async set(key, blob) {
+            await this.ready;
+            if (this.isCacheApi) {
+                // Cache API 存储 Response 对象
+                const response = new Response(blob, {
+                    headers: { 'Content-Type': blob.type || 'image/png' }
+                });
+                await this.backend.put(key, response);
+            } else {
+                // IndexedDB 存储
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.put(blob, key);
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => resolve();
+                });
+            }
+        }
+    
+        async get(key) {
+            await this.ready;
+            if (this.isCacheApi) {
+                const response = await this.backend.match(key);
+                if (!response) return null;
+                return await response.blob();
+            } else {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readonly');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.get(key);
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => resolve(request.result || null);
+                });
+            }
+        }
+    
+        async delete(key) {
+            await this.ready;
+            if (this.isCacheApi) {
+                await this.backend.delete(key);
+            } else {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.delete(key);
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => resolve();
+                });
+            }
+        }
+    
+        async clear() {
+            await this.ready;
+            if (this.isCacheApi) {
+                const keys = await this.backend.keys();
+                for (const key of keys) {
+                    await this.backend.delete(key);
+                }
+            } else {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.clear();
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => resolve();
+                });
+            }
+        }
+    }
+    
+    // 全局存储实例
+    const storage = new StorageAdapter();
+    
+    // =============================================
     // 全局变量声明
     // =============================================
 
     /** @type {Array} 存储所有图片数据的数组 */
     let images = [];
-    /** @type {Set<string>} 存储选中图片ID的集合 */
+    /** @type {Set<string>} 存储选中图片 ID 的集合 */
     let selectedImages = new Set();
     /** @type {boolean} 处理状态标志，防止重复处理 */
     let isProcessing = false;
@@ -1826,235 +1958,109 @@
     // =============================================
     // 图片处理核心函数
     // =============================================
-
     /**
-     * 处理单张图片（混淆/解混淆/还原）
+     * 处理单张图片
      * @param {Object} imageData - 图片数据对象
      * @param {string} operation - 操作类型：'encrypt'|'decrypt'|'restore'
-     * @returns {Promise} 处理完成的Promise
+     * @returns {Promise} 处理完成的 Promise
      *
      * 使用希尔伯特曲线算法对图片像素进行空间重排
      * 通过黄金分割比例计算偏移量实现混淆效果
      */
     async function processSingleImage(imageData, operation) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            let sharedCanvas = null;
-            let sharedCtx = null;
+        // 获取当前图片 Blob (如果是 restore，直接使用原始图片)
+        let sourceBlob;
+        if (operation === 'restore') {
+            sourceBlob = await storage.get(`original_${imageData.id}`);
+        } else {
+            sourceBlob = await storage.get(`current_${imageData.id}`);
+        }
+        if (!sourceBlob) throw new Error('图片数据不存在');
 
-            // 图片加载失败处理
-            img.onerror = () => {
-                const errorMsg = `图片加载失败: ${imageData.name}`;
-                if (typeof logError !== 'undefined') {
-                    logError(imageData.name, '图片加载失败');
-                }
-                // 如果已经获取了Canvas，在这里释放
-                if (sharedCanvas) {
-                    releaseCanvasToPool(sharedCanvas);
-                }
-                reject(new Error(errorMsg));
-            };
+        // 通过 ImageBitmap 加载到 canvas
+        const bitmap = await createImageBitmap(sourceBlob);
+        const canvas = getCanvasFromPool(bitmap.width, bitmap.height);
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(bitmap, 0, 0);
+        bitmap.close();
 
-            // 图片加载成功处理
-            img.onload = () => {
-                let dstBuffer = null; // 提升到try外部，确保catch可以访问
-                
-                try {
-                    // 根据图片尺寸获取合适的Canvas
-                    sharedCanvas = getCanvasFromPool(img.width, img.height);
-                    sharedCtx = sharedCanvas.getContext('2d', { willReadFrequently: true });
+        // 获取像素数据
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const totalPixels = canvas.width * canvas.height;
+        const curve = getCachedCurve(canvas.width, canvas.height);
+        const offset = Math.round((Math.sqrt(5) - 1) / 2 * totalPixels);
+        const dstBuffer = getPixelBuffer(imgData.data.length);
+        const srcU32 = new Uint32Array(imgData.data.buffer);
+        const dstU32 = new Uint32Array(dstBuffer.buffer);
 
-                    // 绘制图片到共享canvas
-                    sharedCtx.clearRect(0, 0, img.width, img.height); // 清除画布避免残留
-                    sharedCtx.drawImage(img, 0, 0);
-
-                    // 获取原始像素数据并从池中获取目标缓冲区
-                    const imageDataPixels = sharedCtx.getImageData(0, 0, img.width, img.height);
-                    dstBuffer = getPixelBuffer(imageDataPixels.data.length); // 从池中获取缓冲区
-
-                    // 生成希尔伯特曲线线性索引数组（使用缓存）
-                    const curveIndices = getCachedCurve(img.width, img.height);
-                    // 计算偏移量：使用黄金分割比例 (√5-1)/2 ≈ 0.618
-                    const offset = Math.round((Math.sqrt(5) - 1) / 2 * img.width * img.height);
-                    const totalPixels = img.width * img.height;
-
-                    // 根据操作类型处理像素数据
-                    if (operation === 'encrypt') {
-                        // 混淆操作：将像素按希尔伯特曲线顺序重排（使用Uint32Array优化）
-                        const srcU32 = new Uint32Array(imageDataPixels.data.buffer);
-                        const dstU32 = new Uint32Array(dstBuffer.buffer);
-                        for(let i = 0; i < totalPixels; i++){
-                            const oldIdx = curveIndices[i];          // 原始线性索引
-                            const newIdx = curveIndices[(i + offset) % totalPixels];  // 新线性索引
-                            
-                            // 一次处理整个像素（4字节）
-                            dstU32[newIdx] = srcU32[oldIdx];
-                        }
-                        imageData.status = 'encrypted';
-                    } else if (operation === 'decrypt') {
-                        // 解混淆操作：反向重排像素（使用Uint32Array优化）
-                        const srcU32 = new Uint32Array(imageDataPixels.data.buffer);
-                        const dstU32 = new Uint32Array(dstBuffer.buffer);
-                        for(let i = 0; i < totalPixels; i++){
-                            const oldIdx = curveIndices[i];          // 原始线性索引
-                            const newIdx = curveIndices[(i + offset) % totalPixels];  // 新线性索引
-                            
-                            // 一次处理整个像素（4字节）
-                            dstU32[oldIdx] = srcU32[newIdx];
-                        }
-                        imageData.status = 'decrypted';
-                    } else if (operation === 'restore') {
-                        // 还原操作：直接复制原始数据
-                        dstBuffer.set(imageDataPixels.data);
-                        imageData.status = 'original';
-                    }
-
-                    // 一次性创建ImageData对象，减少GC压力
-                    const newImageData = new ImageData(dstBuffer, img.width, img.height);
-
-                    // 将处理后的像素数据绘制到Canvas
-                    sharedCtx.putImageData(newImageData, 0, 0);
-                    
-                    // 立即释放缓冲区（Canvas已持有像素数据，缓冲区不再需要）
-                    releasePixelBuffer(dstBuffer);
-
-                    // 转换为PNG格式的Blob
-                    sharedCanvas.toBlob(blob => {
-                        try {
-                            if (!blob) {
-                                reject(new Error('生成Blob失败'));
-                                return;
-                            }
-
-                            // 释放旧的Blob URL（避免内存泄漏）
-                            if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
-                                URL.revokeObjectURL(imageData.blobUrl);
-                            }
-
-                            // 创建新的Blob URL
-                            const blobUrl = URL.createObjectURL(blob);
-
-                            // 更新图片数据
-                            imageData.blobUrl = blobUrl;
-                            imageData.blob = blob;
-                            imageData.processed = true;
-                            imageData.format = 'PNG';  // 更新格式为处理后实际格式（始终为 PNG）
-
-                            // 更新缩略图显示
-                            updateThumbnail(imageData.id, blobUrl);
-
-                            // 更新状态显示
-                            updateImageStatus(imageData.id);
-                            resolve(imageData);
-                        } catch (error) {
-                            console.error('处理过程中发生错误:', error);
-                            reject(error);
-                        } finally {
-                            // 使用公共函数回收Canvas（添加存在性判断确保健壮性）
-                            if (sharedCanvas) {
-                                releaseCanvasToPool(sharedCanvas);
-                                sharedCanvas = null; // 防止二次释放
-                            }
-                        }
-
-                    }, 'image/png', 1.0);
-                } catch (error) {
-                    console.error(`处理图片失败: ${imageData.name}`, error);
-                    // 异常路径释放缓冲区
-                    if (dstBuffer) {
-                        releasePixelBuffer(dstBuffer);
-                    }
-                    if (typeof logError !== 'undefined') {
-                        logError(imageData.name, `处理失败: ${error.message || '未知错误'}`);
-                    }
-                    // 释放Canvas资源回到池中（添加存在性判断）
-                    if (sharedCanvas) {
-                        releaseCanvasToPool(sharedCanvas);
-                        sharedCanvas = null; // 防止二次释放
-                    }
-                    
-                    // 确保在处理失败时也释放可能创建的Blob URL
-                    if (imageData.blobUrl) {
-                        URL.revokeObjectURL(imageData.blobUrl);
-                        imageData.blobUrl = null;
-                        console.log('处理失败时已释放临时Blob URL');
-                    }
-                    
-                    reject(error);
-                }
-            };
-
-            // 关键修复：检查并重新创建有效的 Blob URL
-            let validBlobUrl = imageData.blobUrl || imageData.originalBlobUrl || imageData.url;
-            
-            // 如果 blob URL 已失效，重新创建
-            if (validBlobUrl && validBlobUrl.startsWith('blob:') && imageData.file) {
-                try {
-                    const testImg = new Image();
-                    testImg.onload = () => {
-                        console.log(`✅ 处理图片前验证 Blob URL 有效：${imageData.name}`);
-                    };
-                    testImg.onerror = () => {
-                        console.warn(`⚠️ Blob URL 已失效，重新创建：${imageData.name}`);
-                        validBlobUrl = URL.createObjectURL(imageData.file);
-                        // 更新引用
-                        if (imageData.blobUrl) {
-                            imageData.blobUrl = validBlobUrl;
-                        }
-                        if (imageData.originalBlobUrl) {
-                            imageData.originalBlobUrl = validBlobUrl;
-                        }
-                        imageData.url = validBlobUrl;
-                    };
-                    testImg.src = validBlobUrl;
-                } catch (e) {
-                    console.error('Blob URL 检查失败:', e);
-                    validBlobUrl = URL.createObjectURL(imageData.file);
-                    if (imageData.blobUrl) imageData.blobUrl = validBlobUrl;
-                    if (imageData.originalBlobUrl) imageData.originalBlobUrl = validBlobUrl;
-                    imageData.url = validBlobUrl;
-                }
+        if (operation === 'encrypt') {
+            for (let i = 0; i < totalPixels; i++) {
+                const oldIdx = curve[i];
+                const newIdx = curve[(i + offset) % totalPixels];
+                dstU32[newIdx] = srcU32[oldIdx];
             }
-            
-            // 设置图片源，开始加载图片
-            img.src = validBlobUrl;
-        });
+            imageData.status = 'encrypted';
+        } else if (operation === 'decrypt') {
+            for (let i = 0; i < totalPixels; i++) {
+                const oldIdx = curve[i];
+                const newIdx = curve[(i + offset) % totalPixels];
+                dstU32[oldIdx] = srcU32[newIdx];
+            }
+            imageData.status = 'decrypted';
+        } else if (operation === 'restore') {
+            dstBuffer.set(imgData.data);
+            imageData.status = 'original';
+        }
+
+        // 写回 canvas
+        const newImageData = new ImageData(dstBuffer, canvas.width, canvas.height);
+        ctx.putImageData(newImageData, 0, 0);
+        releasePixelBuffer(dstBuffer);
+
+        // 生成新 Blob (PNG 格式存储)
+        const newBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        // 存储当前图片
+        await storage.set(`current_${imageData.id}`, newBlob);
+        // 更新预览
+        await updateThumbnail(imageData.id, newBlob);
+        // 更新格式信息
+        imageData.format = 'PNG';
+        imageData.processed = true;
+
+        // 释放 canvas
+        releaseCanvasToPool(canvas);
     }
 
     /**
      * 更新缩略图显示
-     * @param {string} imageId - 图片ID
-     * @param {string} url - 新的图片URL
+     * @param {string} imageId - 图片 ID
+     * @param {Blob} blob - 图片 Blob 对象
      *
-     * 使用预加载技术确保图片加载成功后再更新缩略图
+     * 使用 ImageBitmap 将 Blob 绘制到 canvas 缩略图
      */
-    function updateThumbnail(imageId, url) {
+    async function updateThumbnail(imageId, blob) {
         const item = document.querySelector(`[data-id="${imageId}"]`);
         if (!item) return;
-
-        const thumbnail = item.querySelector('.image-preview');
-        if (thumbnail) {
-            // 创建新的Image对象来预加载，确保图片可用
-            const tempImg = new Image();
-            tempImg.onload = () => {
-                thumbnail.src = /** @type {string} */(url);
-                // 加载完成后清理临时对象
-                tempImg.onload = null;
-                tempImg.onerror = null;
-                tempImg.src = '';
-            };
-            tempImg.onerror = () => {
-                console.warn('缩略图更新失败，使用原始URL');
-                const imageData = images.find(img => img.id === imageId);
-                if (imageData) {
-                    thumbnail.src = /** @type {string} */(imageData.url);
+        const canvas = item.querySelector('.thumbnail-canvas');
+        if (canvas) {
+            try {
+                const bitmap = await createImageBitmap(blob);
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(bitmap, 0, 0);
+                bitmap.close();
+                    
+                // 更新元数据中的尺寸
+                const imgData = images.find(img => img.id === imageId);
+                if (imgData) {
+                    imgData.width = bitmap.width;
+                    imgData.height = bitmap.height;
+                    updateImageInfo(imageId);
                 }
-                // 错误处理后也清理临时对象
-                tempImg.onload = null;
-                tempImg.onerror = null;
-                tempImg.src = '';
-            };
-            tempImg.src = url;
+            } catch (e) {
+                console.warn('更新缩略图失败', e);
+            }
         }
     }
 
@@ -2230,348 +2236,154 @@
 
     /**
      * 保存图片到本地（公共函数）
-     * 提取自 saveImages 和 saveSingleImage 函数的公共逻辑
-     * 支持多种图片格式的转换和保存
-     * @param {Object} imageData - 图片数据对象
-     * @param {string} format - 保存格式：'png'|'bmp'|'jpg'|'jpeg'|'webp'
-     * @param {string} [fileNameSuffix=''] - 文件名后缀
-     * @returns {Promise} 保存操作的 Promise
-     * 
-     * 优化：当图片当前格式与目标格式一致时，直接下载原 Blob 避免 Canvas 转换
      */
-    async function saveImageInFormat(imageData, format, fileNameSuffix = '') {
-        return new Promise((resolve, reject) => {
-            // 获取当前图片格式（转换为小写进行比较）
-            const currentFormat = (imageData.format || '').toLowerCase();
-            const targetFormat = format.toLowerCase();
-                
-            // 优化：格式一致时直接使用原 Blob，避免 Canvas 转换
-            const isSameFormat = (currentFormat === targetFormat) || 
-                                 (targetFormat === 'jpg' && currentFormat === 'jpeg') ||
-                                 (targetFormat === 'jpeg' && currentFormat === 'jpg');
-                
-            if (isSameFormat && imageData.blob) {
-                // 格式相同且有处理后的 Blob，直接下载
-                const url = URL.createObjectURL(imageData.blob);
-                const a = document.createElement('a');
-                const ext = targetFormat === 'jpeg' ? 'jpg' : targetFormat;
-                a.download = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}_${imageData.status || 'processed'}.${ext}`;
-                a.href = url;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => {
-                    URL.revokeObjectURL(url);
-                    resolve();
-                }, 100);
-                return;
-            }
-                
-            if (format === 'png') {
-                // PNG格式保存：直接使用现有的Blob或原始URL
-                let urlToSave;
-                let fileName;
+    async function saveImageInFormat(imageData, format) {
+        const blob = await storage.get(`current_${imageData.id}`);
+        if (!blob) throw new Error('图片数据不存在');
 
-                if (imageData.blobUrl && imageData.blob) {
-                    urlToSave = imageData.blobUrl;
-                    fileName = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}_${imageData.status || 'processed'}.png`;
-                } else {
-                    urlToSave = imageData.url;
-                    fileName = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}.png`;
-                }
+        // 如果格式已经是目标格式，直接下载
+        const targetFormat = format.toLowerCase();
+        const currentType = blob.type;
+        const isSame = (currentType === `image/${targetFormat}`) ||
+                       (targetFormat === 'jpg' && currentType === 'image/jpeg') ||
+                       (targetFormat === 'jpeg' && currentType === 'image/jpg');
+        if (isSame) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.download = `${imageData.name.replace(/\.[^/.]+$/, '')}_${imageData.status}.${targetFormat === 'jpeg' ? 'jpg' : targetFormat}`;
+            a.href = url;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 100);
+            return;
+        }
 
-                // 创建下载链接并触发下载
-                const a = document.createElement('a');
-                a.href = urlToSave;
-                a.download = fileName;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                
-                resolve();
+        // 需要转换格式
+        const bitmap = await createImageBitmap(blob);
+        const canvas = getCanvasFromPool(bitmap.width, bitmap.height);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0);
+        bitmap.close();
 
-            } else if (format === 'bmp') {
-                // BMP 格式保存：需要转换格式（无优化路径）
-                const img = new Image();
-                let canvas = null;
-                img.onload = async () => {
-                    
-                    try {
-                        // 根据图片尺寸获取合适的Canvas
-                        canvas = getCanvasFromPool(img.width, img.height);
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0);
+        let outputBlob;
+        if (format === 'png') {
+            outputBlob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        } else if (format === 'bmp') {
+            const bmpData = await canvasToBMPAsync(canvas);
+            outputBlob = new Blob([bmpData], { type: 'image/bmp' });
+        } else if (format === 'jpg' || format === 'jpeg') {
+            outputBlob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 1.0));
+        } else if (format === 'webp') {
+            if (!(await isWebPSupported())) throw new Error('浏览器不支持 WebP');
+            outputBlob = await new Promise(r => canvas.toBlob(r, 'image/webp', 1.0));
+        } else {
+            outputBlob = blob;
+        }
 
-                        // 根据图片大小选择合适的处理方式
-                        const bmpData = await canvasToBMPAsync(canvas);
-                        const blob = new Blob([bmpData], {type: 'image/bmp'});
-                        const url = URL.createObjectURL(blob);
-
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}_${imageData.status || 'processed'}.bmp`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        
-                        // 延迟释放URL，确保下载完成
-                        setTimeout(() => {
-                            URL.revokeObjectURL(url);
-                            resolve();
-                        }, 100);
-                    } catch (error) {
-                        console.error('生成BMP失败:', error);
-                        reject(new Error(`生成BMP失败: ${error.message || '未知错误'}`));
-                    } finally {
-                        // 使用公共函数回收Canvas（添加存在性判断确保健壮性）
-                        if (canvas) {
-                            releaseCanvasToPool(canvas);
-                            canvas = null; // 防止二次释放
-                        }
-                    }
-                };
-
-                img.onerror = () => {
-                    console.error('图片加载失败，无法保存为BMP');
-                    // 释放Canvas资源回到池中（添加存在性判断）
-                    if (canvas) {
-                        releaseCanvasToPool(canvas);
-                        canvas = null; // 防止二次释放
-                    }
-                    reject(new Error('图片加载失败，无法保存为BMP'));
-                };
-
-                img.src = imageData.blobUrl || imageData.url;
-            } else if (format === 'jpg' || format === 'jpeg') {
-                // JPG 格式保存：需要转换格式（无优化路径）
-                const img = new Image();
-                let canvas = null;
-                img.onload = () => {
-                    
-                    try {
-                        // 根据图片尺寸获取合适的Canvas
-                        canvas = getCanvasFromPool(img.width, img.height);
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0);
-
-                        canvas.toBlob(blob => {
-                            try {
-                                if (!blob) {
-                                    console.error('生成JPG Blob失败');
-                                    reject(new Error('生成JPG Blob失败'));
-                                    return;
-                                }
-                                
-                                const url = URL.createObjectURL(blob);
-
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}_${imageData.status || 'processed'}.jpg`;
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
-                                
-                                // 延迟释放URL，确保下载完成
-                                setTimeout(() => {
-                                    URL.revokeObjectURL(url);
-                                    resolve();
-                                }, 100);
-                            } catch (error) {
-                                console.error('JPG Blob处理失败:', error);
-                                reject(new Error(`JPG Blob处理失败: ${error.message || '未知错误'}`));
-                            }
-                        }, 'image/jpeg', 1.0); // 最高质量
-                    } catch (error) {
-                        console.error('生成JPG失败:', error);
-                        reject(new Error(`生成JPG失败: ${error.message || '未知错误'}`));
-                    } finally {
-                        // 使用公共函数回收Canvas（添加存在性判断确保健壮性）
-                        if (canvas) {
-                            releaseCanvasToPool(canvas);
-                            canvas = null; // 防止二次释放
-                        }
-                    }
-                };
-
-                img.onerror = () => {
-                    console.error('图片加载失败，无法保存为JPG');
-                    // 释放Canvas资源回到池中（添加存在性判断）
-                    if (canvas) {
-                        releaseCanvasToPool(canvas);
-                        canvas = null; // 防止二次释放
-                    }
-                    reject(new Error('图片加载失败，无法保存为JPG'));
-                };
-
-                img.src = imageData.blobUrl || imageData.url;
-            } else if (format === 'webp') {
-                // WebP 格式保存：需要转换格式（无优化路径）
-                const img = new Image();
-                let canvas = null;
-                img.onload = async () => {
-                    // 检测浏览器是否支持WebP
-                    const webpSupported = await isWebPSupported();
-                    if (!webpSupported) {
-                        reject(new Error('您的浏览器不支持WebP格式，请选择其他格式保存'));
-                        return;
-                    }
-                    
-                    try {
-                        // 根据图片尺寸获取合适的Canvas
-                        canvas = getCanvasFromPool(img.width, img.height);
-                        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                        ctx.drawImage(img, 0, 0);
-
-                        canvas.toBlob(blob => {
-                            try {
-                                if (!blob) {
-                                    console.error('生成WebP Blob失败');
-                                    reject(new Error('生成WebP Blob失败'));
-                                    return;
-                                }
-                                
-                                const url = URL.createObjectURL(blob);
-
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = `${imageData.name || imageData.originalName.replace(/\.[^/.]+$/, '')}_${imageData.status || 'processed'}.webp`;
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
-                                
-                                // 延迟释放URL，确保下载完成
-                                setTimeout(() => {
-                                    URL.revokeObjectURL(url);
-                                    resolve();
-                                }, 100);
-                            } catch (error) {
-                                console.error('WebP Blob处理失败:', error);
-                                reject(new Error(`WebP Blob处理失败: ${error.message || '未知错误'}`));
-                            }
-                        }, 'image/webp', 1.0); // 最高质量
-                    } catch (error) {
-                        console.error('生成WebP失败:', error);
-                        reject(new Error(`生成WebP失败: ${error.message || '未知错误'}`));
-                    } finally {
-                        // 使用公共函数回收Canvas（添加存在性判断确保健壮性）
-                        if (canvas) {
-                            releaseCanvasToPool(canvas);
-                            canvas = null; // 防止二次释放
-                        }
-                    }
-                };
-
-                img.onerror = () => {
-                    console.error('图片加载失败，无法保存为WebP');
-                    // 释放Canvas资源回到池中（添加存在性判断）
-                    if (canvas) {
-                        releaseCanvasToPool(canvas);
-                        canvas = null; // 防止二次释放
-                    }
-                    reject(new Error('图片加载失败，无法保存为WebP'));
-                };
-
-                img.src = imageData.blobUrl || imageData.url;
-            }
-        });
+        const url = URL.createObjectURL(outputBlob);
+        const a = document.createElement('a');
+        const ext = format === 'jpeg' ? 'jpg' : format;
+        a.download = `${imageData.name.replace(/\.[^/.]+$/, '')}_${imageData.status}.${ext}`;
+        a.href = url;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+        releaseCanvasToPool(canvas);
     }
 
     // =============================================
     // 图片管理函数
     // =============================================
 
+
     /**
      * 添加图片到应用
      * @param {File} file - 图片文件对象
-     *
-     * 读取图片文件，创建图片数据对象，并添加到图片列表
-     * 支持获取图片尺寸和初始化状态信息
      */
-    function addImage(file) {
-        // 生成唯一 ID：时间戳 + 随机数
+    async function addImage(file) {
         const id = Date.now().toString(36) + Math.random().toString(36).substring(2);
-            
-        // 直接创建 Blob URL，避免 Base64 编码的内存膨胀
-        const originalBlobUrl = URL.createObjectURL(file);
-            
-        // 创建图片数据对象
-        const imageData = {
-            id,
-            name: file.name,  // 保留文件扩展名
-            originalName: file.name,
-            url: originalBlobUrl,           // 使用blob URL
-            originalBlobUrl,                // 保存原始 blob URL 以便释放
-            file: file,                     // 关键修复：保存原始 File 对象，用于重新创建 blob URL
-            status: 'original',
-            blob: null,
-            blobUrl: null,
-            size: file.size,
-            width: 0,
-            height: 0,
-            format: file.type.split('/')[1]?.toUpperCase() || 'UNKNOWN', // 图片格式
-            processed: false,
-                
-            // 添加清理方法
-            cleanup: function() {
-                if (this.originalBlobUrl && this.originalBlobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(this.originalBlobUrl);
-                    console.log('已释放原始 Blob URL:', this.originalBlobUrl);
+        let blob;
+        let originalFormat = file.type.split('/')[1]?.toUpperCase() || 'UNKNOWN';
+        try {
+            // 优先使用 arrayBuffer
+            const buffer = await file.arrayBuffer();
+            blob = new Blob([buffer], { type: file.type });
+        } catch (firstError) {
+            console.warn(`arrayBuffer 读取失败，尝试 FileReader: ${file.name}`, firstError);
+            try {
+                // 回退到 FileReader
+                const buffer = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsArrayBuffer(file);
+                });
+                blob = new Blob([buffer], { type: file.type });
+            } catch (secondError) {
+                console.warn(`FileReader 读取也失败，尝试 createImageBitmap 直接获取图像：${file.name}`, secondError);
+                try {
+                    // 最终回退：尝试直接使用 createImageBitmap 获取图像数据（绕过文件读取）
+                    const bitmap = await createImageBitmap(file);
+                    // 将 ImageBitmap 绘制到 canvas 并导出为 PNG Blob
+                    const canvas = getCanvasFromPool(bitmap.width, bitmap.height);
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(bitmap, 0, 0);
+                    bitmap.close();
+                    blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                    releaseCanvasToPool(canvas);
+                    originalFormat = 'PNG'; // 强制格式为 PNG
+                    console.log(`已将图片 ${file.name} 转换为 PNG 格式存储`);
+                } catch (thirdError) {
+                    console.error(`所有读取方式均失败：${file.name}`, thirdError);
+                    throw thirdError; // 彻底失败
                 }
-                if (this.blobUrl && this.blobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(this.blobUrl);
-                    console.log('已释放处理后 Blob URL:', this.blobUrl);
-                }
-                // 清理引用
-                this.originalBlobUrl = null;
-                this.blobUrl = null;
-                this.url = null;
-                this.file = null; // 释放 file 引用
-            }
-        };
-    
-        // 添加到图片数组
-        images.push(imageData);
-        // 渲染图片项到界面
-        renderImageItem(imageData);
-        // 更新图片计数器
-        updateImageCounter();
-        // 隐藏空状态提示
-        hideEmptyState();
-            
-        // 首次导入文件后隐藏说明文字
-        if (!hasImportedFiles) {
-            hasImportedFiles = true;
-            const descriptionText = document.getElementById('description-text');
-            if (descriptionText) {
-                descriptionText.style.display = 'none';
             }
         }
-    
-        // 获取图片尺寸
-        const img = new Image();
-        img.onload = () => {
-            imageData.width = img.width;
-            imageData.height = img.height;
-            updateImageInfo(imageData.id);
+
+        // 存储原始图片
+        await storage.set(`original_${id}`, blob);
+        await storage.set(`current_${id}`, blob); // 当前图片初始为原始
+
+        const imageData = {
+            id,
+            name: file.name,
+            originalName: file.name,
+            status: 'original',
+            size: blob.size,  // 注意：如果是回退转换，文件大小可能变化
+            width: 0,
+            height: 0,
+            format: originalFormat,
+            processed: false
         };
-        img.onerror = () => {
-            console.error('图片尺寸获取失败:', file.name);
-            // 设置默认尺寸并在界面显示提示
-            imageData.width = 0;
-            imageData.height = 0;
-            updateImageInfo(imageData.id);
-        };
-        img.src = originalBlobUrl;  // 使用相同的 blob URL
+        images.push(imageData);
+        await renderImageItem(imageData);
+        updateImageCounter();
+        hideEmptyState();
+
+        if (!hasImportedFiles) {
+            hasImportedFiles = true;
+            const desc = document.getElementById('description-text');
+            if (desc) desc.style.display = 'none';
+        }
+
+        // 获取尺寸用于显示
+        const bitmap = await createImageBitmap(blob);
+        imageData.width = bitmap.width;
+        imageData.height = bitmap.height;
+        bitmap.close();
+        updateImageInfo(imageData.id);
     }
 
     /**
      * 渲染单个图片项到界面
      * @param {Object} imageData - 图片数据对象
      *
-     * 创建图片项的DOM元素，包括缩略图、信息显示和操作按钮
+     * 创建图片项的 DOM 元素，包括缩略图、信息显示和操作按钮
      * 支持预览、选择和单张处理功能
      */
-    function renderImageItem(imageData) {
+    async function renderImageItem(imageData) {
         const imageList = document.getElementById('imageList');
         const item = document.createElement('div');
         item.className = 'image-item';
@@ -2581,49 +2393,26 @@
         const thumbnailContainer = document.createElement('div');
         thumbnailContainer.className = 'thumbnail-container';
         thumbnailContainer.onclick = () => showPreview(imageData.id);  // 点击预览
-
-        // 创建缩略图
-        const img = document.createElement('img');
-        img.className = 'image-preview';
-        img.src = /** @type {string} */(imageData.url);
-        img.alt = imageData.originalName;
-
-        // 修复图片加载失败问题 - 添加重试限制
-        let retryCount = 0;
-        const MAX_RETRIES = 3;
-        
-        img.onerror = (e) => {
-            retryCount++;
-            if (retryCount <= MAX_RETRIES) {
-                console.warn(`缩略图加载失败，第${retryCount}次重试:`, imageData.name);
-                // 延迟后重新加载
-                setTimeout(() => {
-                    if (imageData.blobUrl) {
-                        e.target.src = imageData.blobUrl;
-                    } else {
-                        e.target.src = imageData.url;
-                    }
-                }, 100 * retryCount); // 递增延迟时间
-            } else {
-                console.error('缩略图加载失败，已达到最大重试次数:', imageData.name);
-                // 显示占位图
-                e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkxvYWQgRmFpbGVkPC90ZXh0Pjwvc3ZnPg==';
-                e.target.alt = '图片加载失败';
-            }
-        };
-
-        thumbnailContainer.appendChild(img);
-
-        // 设置图片项内容（使用HTML转义防止XSS）
+    
+        // 创建缩略图 canvas
+        const canvas = document.createElement('canvas');
+        canvas.className = 'thumbnail-canvas';
+        canvas.style.width = '100%';
+        canvas.style.height = 'auto';
+        canvas.style.maxHeight = '150px';
+        canvas.style.objectFit = 'contain';
+        thumbnailContainer.appendChild(canvas);
+    
+        // 设置图片项内容（使用 HTML 转义防止 XSS）
         item.innerHTML = `
         <input type="checkbox" class="select-checkbox">
         <div class="image-info" id="info-${imageData.id}">
             <div class="text-multiline" style="font-weight: bold;">${escapeHtml(imageData.name)}</div>
             <div class="image-info-row">
-                <span>${imageData.width}×${imageData.height}</span>
+                <span>${imageData.width > 0 ? `${imageData.width}×${imageData.height}` : '<span style="color:#999;">尺寸未知</span>'}</span>
             </div>
-            <div class="file-size">格式: ${imageData.format || 'N/A'} <span class="separator">|</span> ${formatFileSize(imageData.size)}</div>
-            <div class="status-badge status-${imageData.status || 'original'}">原始图片</div>
+            <div class="file-size">格式：${imageData.format || 'N/A'} | ${formatFileSize(imageData.size)}</div>
+            <div class="status-badge status-${imageData.status || 'original'}">${imageData.status === 'original' ? '原始图片' : imageData.status === 'encrypted' ? '已混淆' : '已解混淆'}</div>
         </div>
         <div class="image-actions">
             <button class="action-btn" data-operation="encrypt">混淆</button>
@@ -2635,20 +2424,32 @@
             </div>
         </div>
     `;
-
+    
         // 添加事件监听器
         const checkbox = item.querySelector('.select-checkbox');
         checkbox.addEventListener('click', (event) => {
             event.stopPropagation();
             toggleSelect(imageData.id, event);
         });
-
-        // 注意：使用事件委托替代直接绑定，避免创建大量监听器
-        // 实际的事件处理在imageList容器上统一处理
-
+    
         // 插入缩略图容器到正确位置
         item.insertBefore(thumbnailContainer, item.firstChild);
         imageList.appendChild(item);
+    
+        // 加载并绘制缩略图
+        const blob = await storage.get(`current_${imageData.id}`);
+        if (blob) {
+            try {
+                const bitmap = await createImageBitmap(blob);
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(bitmap, 0, 0);
+                bitmap.close();
+            } catch (e) {
+                console.warn('缩略图绘制失败', e);
+            }
+        }
     }
 
     // =============================================
@@ -2857,26 +2658,17 @@
      *
      * 释放所有资源，清空图片列表和选择状态
      */
-    function clearAll() {
+    async function clearAll() {
         if (isProcessing) {
             alert('正在处理中，请稍后...');
             return;
         }
-        // 统一调用cleanup方法释放所有资源（避免内存泄漏）
-        images.forEach(img => {
-            if (typeof img.cleanup === 'function') {
-                img.cleanup();
-            } else {
-                // 兼容旧版本的数据结构
-                if (img.blobUrl && img.blobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(img.blobUrl);
-                }
-                if (img.originalBlobUrl && img.originalBlobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(img.originalBlobUrl);
-                }
-            }
-        });
-
+        // 清理存储中的数据
+        for (const img of images) {
+            await storage.delete(`original_${img.id}`);
+            await storage.delete(`current_${img.id}`);
+        }
+            
         // 重置所有状态
         images = [];
         selectedImages.clear();
@@ -2884,14 +2676,14 @@
         document.getElementById('imageList').innerHTML = '<div class="empty-state" id="emptyState"></div>';
         document.getElementById('batchStatus').innerHTML = '';
         updateImageCounter();
-        
-        // 清理viewer实例
+            
+        // 清理 viewer 实例
         if (viewerInstance) {
             try {
                 viewerInstance.destroy();
-                console.log('已销毁viewer实例');
+                console.log('已销毁 viewer 实例');
             } catch (error) {
-                console.warn('销毁viewer实例时出错:', error);
+                console.warn('销毁 viewer 实例时出错:', error);
             }
             viewerInstance = null;
         }
@@ -2899,11 +2691,11 @@
 
     /**
      * 删除单张图片
-     * @param {string} imageId - 要删除的图片ID
+     * @param {string} imageId - 要删除的图片 ID
      * 
-     * 从数组和DOM中移除图片，同时释放Blob URL资源
+     * 从数组和 DOM 中移除图片，同时释放 Blob URL 资源
      */
-    function deleteSingleImage(imageId) {
+    async function deleteSingleImage(imageId) {
         if (isProcessing) {
             alert('正在处理中，请稍后...');
             return;
@@ -2916,9 +2708,14 @@
         }
         
         // 直接删除，不弹出确认对话框
-        
+                
         try {
-            // 从DOM中移除图片项
+            // ✅ 清理存储：删除原始图片和当前图片
+            await storage.delete(`original_${imageId}`);
+            await storage.delete(`current_${imageId}`);
+            console.log(`🗑️ 已删除存储数据：original_${imageId}, current_${imageId}`);
+                    
+            // 从 DOM 中移除图片项
             const item = document.querySelector(`[data-id="${imageId}"]`);
             if (item) {
                 item.remove();
@@ -3090,30 +2887,33 @@
      *
      * 处理通过拖拽或文件选择添加的图片文件
      */
-    function handleFiles(files) {
+    async function handleFiles(files) {
         let addedCount = 0;
         let errorCount = 0;
 
-        files.forEach(file => {
-            // 校验文件是否为图片
+        for (const file of files) {
             if (!isValidImageFile(file)) {
                 logError(file.name, '不是有效的图片文件');
                 errorCount++;
-                return;
+                continue;
             }
 
-            // 移除文件大小限制，可以处理任意大小的图片
-            addImage(file);
-            addedCount++;
-        });
+            try {
+                await addImage(file);
+                addedCount++;
+            } catch (error) {
+                console.error(`添加图片失败：${file.name}`, error);
+                errorCount++;
+            }
+        }
 
         let message = '';
         if (addedCount > 0 && errorCount > 0) {
-            message = `✅ 已添加 ${addedCount} 张图片，❌ ${errorCount} 个文件被拒绝`;
+            message = `✅ 已添加 ${addedCount} 张图片，❌ ${errorCount} 个文件被拒绝或读取失败`;
         } else if (addedCount > 0) {
             message = `✅ 已添加 ${addedCount} 张图片`;
         } else if (errorCount > 0) {
-            message = `❌ 所有 ${errorCount} 个文件都被拒绝`;
+            message = `❌ 所有 ${errorCount} 个文件都被拒绝或读取失败`;
         }
 
         if (message) {
@@ -3326,76 +3126,42 @@
         // 预先创建所有图片元素，并等待它们加载完成
         const loadPromises = images.map((imgData, index) => {
             return new Promise((resolve, reject) => {
-                const img = document.createElement('img');
-                
-                // 关键修复：检查并重新创建有效的 Blob URL
-                let validBlobUrl = imgData.blobUrl || imgData.originalBlobUrl || imgData.url;
-                
-                // 如果 blob URL 已失效，重新创建
-                if (validBlobUrl && validBlobUrl.startsWith('blob:') && imgData.file) {
-                    try {
-                        // 测试 blob URL 是否有效
-                        const testImg = new Image();
-                        testImg.onload = () => {
-                            // URL 有效，继续使用
-                            console.log(`✅ Blob URL 有效：${imgData.name}`);
-                        };
-                        testImg.onerror = () => {
-                            // URL 失效，重新创建
-                            console.warn(`⚠️ Blob URL 已失效，重新创建：${imgData.name}`);
-                            validBlobUrl = URL.createObjectURL(imgData.file);
-                            imgData.blobUrl = validBlobUrl; // 更新引用
-                        };
-                        testImg.src = validBlobUrl;
-                    } catch (e) {
-                        console.error('Blob URL 检查失败:', e);
-                        validBlobUrl = URL.createObjectURL(imgData.file);
-                        imgData.blobUrl = validBlobUrl;
-                    }
-                }
-                
-                img.src = validBlobUrl;
-                img.alt = imgData.name || `图片 ${index + 1}`;
-                img.dataset.imageId = imgData.id;
-                img.dataset.index = index.toString();
-                img.loading = 'eager';
-                
-                // 设置加载超时（5 秒）
-                const timeoutId = setTimeout(() => {
-                    console.warn(`⏰ 图片 ${imgData.name} 加载超时`);
-                    reject(new Error(`图片加载超时：${imgData.name}`));
-                }, 5000);
-                
-                img.onload = function() {
-                    clearTimeout(timeoutId);
-                    console.log(`✅ 图片 ${img.alt} 加载完成 (${img.naturalWidth}x${img.naturalHeight})`);
-                    resolve(img);
-                };
-                
-                img.onerror = function() {
-                    clearTimeout(timeoutId);
-                    console.error(`❌ 图片 ${imgData.name} 加载失败`);
-                    
-                    // 尝试重新创建 blob URL（如果是 blob URL 失败）
-                    if (imgData.file) {
-                        console.log('🔄 尝试从原文件重新创建 blob URL');
-                        try {
-                            const newBlobUrl = URL.createObjectURL(imgData.file);
-                            imgData.blobUrl = newBlobUrl;
-                            img.src = newBlobUrl;
-                            console.log('🔄 已重新创建 blob URL，再次尝试加载');
-                        } catch (e) {
-                            console.error('无法重新创建 blob URL:', e);
-                            this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkxvYWQgRmFpbGVkPC90ZXh0Pjwvc3ZnPg==';
-                            resolve(img); // 即使失败也继续
-                        }
-                    } else {
-                        this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkxvYWQgRmFpbGVkPC90ZXh0Pjwvc3ZnPg==';
+                storage.get(`current_${imgData.id}`).then(blob => {
+                    if (!blob) throw new Error(`图片数据不存在：${imgData.name}`);
+
+                    const blobUrl = URL.createObjectURL(blob);
+                    const img = document.createElement('img');
+                    img.src = blobUrl;
+                    img.alt = imgData.name || `图片 ${index + 1}`;
+                    img.dataset.imageId = imgData.id;
+                    img.dataset.index = index.toString();
+                    img.dataset.blobUrl = blobUrl;
+                    img.loading = 'eager';
+
+                    const timeoutId = setTimeout(() => {
+                        console.warn(`⏰ 图片 ${imgData.name} 加载超时`);
+                        reject(new Error(`图片加载超时：${imgData.name}`));
+                    }, 5000);
+
+                    img.onload = () => {
+                        clearTimeout(timeoutId);
+                        console.log(`✅ 图片 ${img.alt} 加载完成 (${img.naturalWidth}x${img.naturalHeight})`);
+                        resolve(img);
+                    };
+
+                    img.onerror = () => {
+                        clearTimeout(timeoutId);
+                        console.error(`❌ 图片 ${imgData.name} 加载失败`);
+                        // 显示占位图并继续
+                        img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkxvYWQgRmFpbGVkPC90ZXh0Pjwvc3ZnPg==';
                         resolve(img); // 即使失败也继续
-                    }
-                };
-                
-                container.appendChild(img);
+                    };
+
+                    container.appendChild(img);
+                }).catch(error => {
+                    console.error(`图片 ${imgData.name} 加载异常:`, error);
+                    reject(error);
+                });
             });
         });
         
@@ -3671,6 +3437,15 @@
             viewerInstance = null;
         }
         if (container && container.parentNode) {
+            // 释放所有临时 blob URL
+            const imgs = container.querySelectorAll('img');
+            imgs.forEach(img => {
+                const url = img.dataset.blobUrl;
+                if (url && url.startsWith('blob:')) {
+                    URL.revokeObjectURL(url);
+                    console.log(`🔓 已释放临时 Blob URL`);
+                }
+            });
             container.parentNode.removeChild(container);
         }
         console.log('✅ Viewer.js 资源已清理');
