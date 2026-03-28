@@ -3545,22 +3545,33 @@
         }
     });
     
-    // 显示开源许可证信息
+    // 显示开源许可证信息（新标签页打开）
     function showLicenseInfo() {
-        // 保存整个页脚内容
-        const footerContent = document.querySelector('body').lastElementChild.outerHTML;
+        const licenseContent = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>开源许可证 - 图片混淆工具</title>
+    <style>
+        body { margin: 0; padding: 20px; font-family: Arial, sans-serif; background: white; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { color: #333; text-align: center; margin-bottom: 30px; font-size: 2em; }
+        h2 { color: #0091ff; margin: 30px 0 15px 0; border-bottom: 2px solid #0091ff; padding-bottom: 5px; }
+        a { color: #0091ff; text-decoration: underline; }
+        .license-text { white-space: pre-wrap; font-family: 'Courier New', monospace; background: #f8f8f8; padding: 25px; border-radius: 4px; border-left: 4px solid #0091ff; margin-bottom: 30px; }
+        p { color: #666; font-style: italic; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>开源许可证</h1>
         
-        // 直接替换页脚内容为许可证内容
-        document.querySelector('body').lastElementChild.outerHTML = `
-<div style="width: 100vw; height: 100vh; position: fixed; top: 0; left: 0; background: white; padding: 20px; box-sizing: border-box; overflow-y: auto;">
-    <div style="max-width: 100%; margin: 0 auto; padding: 20px;">
-        <h1 style="color: #333; text-align: center; margin-bottom: 30px; font-size: 2em;">开源许可证</h1>
-        
-        <h2 style="color: #0091ff; margin: 30px 0 15px 0; border-bottom: 2px solid #0091ff; padding-bottom: 5px;">Image Obfuscation Tool</h2>
-        <div style="white-space: pre-wrap; font-family: 'Courier New', monospace; background: #f8f8f8; padding: 25px; border-radius: 4px; border-left: 4px solid #0091ff; margin-bottom: 30px;">
-MIT License
+        <h2><a href="https://github.com/cnpxs1/Image-obfuscation-tool" target="_blank">Image-Obfuscation-Tool</a></h2>
+        <div class="license-text">MIT License
 
-Copyright © 2026 cnpxs1
+Copyright © 2026-present cnpxs1
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -3578,13 +3589,11 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-        </div>
+SOFTWARE.</div>
         
-        <h2 style="color: #0091ff; margin: 30px 0 15px 0; border-bottom: 2px solid #0091ff; padding-bottom: 5px;"><a href="https://github.com/fengyuanchen/viewerjs" target="_blank" style="color: #0091ff; text-decoration: underline;">Viewer.js</a></h2>
-        <p style="color: #666; font-style: italic; margin-bottom: 15px;">JavaScript 图像查看器</p>
-        <div style="white-space: pre-wrap; font-family: 'Courier New', monospace; background: #f8f8f8; padding: 25px; border-radius: 4px; border-left: 4px solid #0091ff; margin-bottom: 30px;">
-The MIT License (MIT)
+        <h2><a href="https://github.com/fengyuanchen/viewerjs" target="_blank">Viewer.js</a></h2>
+        <p>JavaScript 图像查看器</p>
+        <div class="license-text">The MIT License (MIT)
 
 Copyright 2015-present Chen Fengyuan
 
@@ -3604,42 +3613,23 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-        </div>
-        
-        <div style="text-align: center; margin-top: 20px;">
-            <button onclick="goBackToMain()" style="background: #0091ff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;">关闭</button>
-        </div>
+THE SOFTWARE.</div>
     </div>
-</div>`;
+</body>
+</html>`;
         
-        // 添加返回函数
-        window.goBackToMain = function() {
-            // 恢复页脚内容
-            document.querySelector('body').lastElementChild.outerHTML = footerContent;
-            // 重新绑定事件
-            setTimeout(() => {
-                bindFooterEvents();
-            }, 100);
-        };
-    }
-    
-    // 绑定页脚事件
-    function bindFooterEvents() {
-        const licenseLink = document.querySelector('a[onclick*="showLicenseInfo"]');
-        if (licenseLink) {
-            licenseLink.onclick = function(e) {
-                e.preventDefault();
-                showLicenseInfo();
-                return false;
-            };
+        // 在新标签页中打开
+        const newWindow = window.open('', '_blank');
+        if (newWindow) {
+            newWindow.document.write(licenseContent);
+            newWindow.document.close();
+        } else {
+            alert('请允许弹出窗口以查看许可证信息');
         }
     }
     
     // 页面加载完成后绑定事件
     document.addEventListener('DOMContentLoaded', function() {
-        bindFooterEvents();
-            
         // 全局 resize 监听：窗口大小改变时更新 Viewer 布局（带防抖）
         window.addEventListener('resize', handleWindowResize);
             
