@@ -701,7 +701,7 @@
             document.head.appendChild(localJs);
         }
         
-        // 基础图片查看器 - 当所有高级查看器都失效时的兜底方案
+        // 基础图片查看器 - 当所有Viewer.js 资源都失效时的兜底方案
         function showBasicImageViewer(imageData) {
             console.log('启动基础图片查看器');
             
@@ -822,27 +822,36 @@
             
             // 关闭查看器的函数
             function closeBasicViewer() {
-                // 清理通过addEventListener添加的事件监听器
+                // 清理通过 addEventListener 添加的事件监听器
                 cleanupEventListeners();
-                
+                            
                 // 清理全局事件监听器
                 document.removeEventListener('keydown', escHandler);
-                
+                            
                 // 移除查看器容器
                 if (viewerContainer.parentNode) {
                     viewerContainer.parentNode.removeChild(viewerContainer);
                 }
-                
+                            
                 // 重新启用页面滚动
                 document.body.style.overflow = '';
-                
+                            
                 // 清理图片资源
                 if (img) {
                     img.onload = null;
                     img.onerror = null;
                     img.onclick = null;
+                    // 释放 Blob URL（如果存在）
+                    if (img.src && img.src.startsWith('blob:')) {
+                        try {
+                            URL.revokeObjectURL(img.src);
+                            console.log('🔓 已释放基础查看器的 Blob URL');
+                        } catch (error) {
+                            console.warn('释放 Blob URL 失败:', error);
+                        }
+                    }
                 }
-                
+                            
                 // 清理按钮事件
                 if (closeBtn) {
                     closeBtn.onclick = null;
@@ -850,7 +859,7 @@
                     closeBtn.onmouseenter = null;
                     closeBtn.onmouseleave = null;
                 }
-                
+                            
                 console.log('基础查看器已关闭并清理资源');
             }
             
@@ -1129,7 +1138,7 @@
                     await caches.open(this.cacheName);
                     this.isCacheApi = true;
                     this.backend = await caches.open(this.cacheName);
-                    console.log('✅ 使用 Cache API 作为存储后端');
+                    console.log('✅ 使用 Cache API');
                     return;
                 } catch (e) {
                     console.warn('Cache API 不可用，降级到 IndexedDB', e);
@@ -1138,7 +1147,7 @@
             // 降级到 IndexedDB
             this.isCacheApi = false;
             await this._initIndexedDB();
-            console.log('✅ 使用 IndexedDB 作为存储后端');
+            console.log('✅ 使用 IndexedDB');
         }
     
         async _initIndexedDB() {
@@ -1440,10 +1449,10 @@
      * 通过黄金分割比例计算偏移量实现混淆效果
      */
     // =============================================
-    // 希尔伯特曲线缓存（带LRU淘汰策略）
+    // 希尔伯特曲线缓存（LRU淘汰策略）
     // =============================================
     
-    // 增强版希尔伯特曲线缓存 - 基于访问频率的LFU策略
+    // 希尔伯特曲线缓存 - 基于访问频率的LFU策略
     const curveCache = new Map(); // key -> {data: Uint32Array, frequency: number, lastAccess: number}
     const MAX_CACHE_SIZE = 20;
     let accessCounter = 0; // 全局访问计数器，用于记录访问时间
@@ -2026,11 +2035,16 @@
         const newBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
         // 存储当前图片
         await storage.set(`current_${imageData.id}`, newBlob);
-        // 更新预览
-        await updateThumbnail(imageData.id, newBlob);
-        // 更新格式信息
+        
+        // 更新图片元数据（不修改尺寸，只更新格式和状态）
         imageData.format = 'PNG';
         imageData.processed = true;
+        imageData.size = newBlob.size; // 更新文件大小
+        
+        // 更新预览
+        await updateThumbnail(imageData.id, newBlob);
+        // 更新界面显示
+        updateImageInfo(imageData.id);
 
         // 释放 canvas
         releaseCanvasToPool(canvas);
@@ -2056,13 +2070,8 @@
                 ctx.drawImage(bitmap, 0, 0);
                 bitmap.close();
                     
-                // 更新元数据中的尺寸
-                const imgData = images.find(img => img.id === imageId);
-                if (imgData) {
-                    imgData.width = bitmap.width;
-                    imgData.height = bitmap.height;
-                    updateImageInfo(imageId);
-                }
+                // 只更新界面显示，不修改元数据中的尺寸（保持首次获取的尺寸不变）
+                updateImageInfo(imageId);
             } catch (e) {
                 console.warn('更新缩略图失败', e);
             }
@@ -2351,14 +2360,22 @@
         await storage.set(`original_${id}`, blob);
         await storage.set(`current_${id}`, blob); // 当前图片初始为原始
 
+        // 先获取图片尺寸
+        const bitmap = await createImageBitmap(blob);
+        const width = bitmap.width;
+        const height = bitmap.height;
+        bitmap.close();
+
         const imageData = {
             id,
             name: file.name,
             originalName: file.name,
             status: 'original',
             size: blob.size,  // 注意：如果是回退转换，文件大小可能变化
-            width: 0,
-            height: 0,
+            width: width,
+            height: height,
+            naturalWidth: width,
+            naturalHeight: height,
             format: originalFormat,
             processed: false
         };
@@ -2372,12 +2389,8 @@
             const desc = document.getElementById('description-text');
             if (desc) desc.style.display = 'none';
         }
-
-        // 获取尺寸用于显示
-        const bitmap = await createImageBitmap(blob);
-        imageData.width = bitmap.width;
-        imageData.height = bitmap.height;
-        bitmap.close();
+        
+        // 更新界面显示
         updateImageInfo(imageData.id);
     }
 
@@ -2502,15 +2515,23 @@
             const sizeRow = infoDiv.querySelector('.image-info-row');
             let targetElementForFileSize; // 用于确定文件大小元素的插入位置
             
+            // 检查尺寸数据是否有效
+            const hasValidSize = imageData.hasOwnProperty('width') && 
+                                imageData.hasOwnProperty('height') && 
+                                typeof imageData.width === 'number' && 
+                                typeof imageData.height === 'number' &&
+                                imageData.width > 0 && 
+                                imageData.height > 0;
+            
             if (sizeRow) {
-                sizeRow.innerHTML = `<span>${imageData.width > 0 && imageData.height > 0 ? 
+                sizeRow.innerHTML = `<span>${hasValidSize ? 
                     `${imageData.width}×${imageData.height}` : 
                     '<span style="color: #999; font-style: italic;">尺寸未知</span>'}</span>`;
                 targetElementForFileSize = sizeRow;
             } else {
                 const newRow = document.createElement('div');
                 newRow.className = 'image-info-row';
-                newRow.innerHTML = `<span>${imageData.width > 0 && imageData.height > 0 ? 
+                newRow.innerHTML = `<span>${hasValidSize ? 
                     `${imageData.width}×${imageData.height}` : 
                     '<span style="color: #999; font-style: italic;">尺寸未知</span>'}</span>`;
                 infoDiv.insertBefore(newRow, fileNameDiv.nextSibling);
@@ -3050,7 +3071,7 @@
         currentPreviewController = new AbortController();
         
         // 3. 创建新容器
-        const galleryContainer = createImageGalleryContainer();
+        const galleryContainer = await createImageGalleryContainer();
                 
         try {
             // 4. 等待 Viewer 资源加载并初始化
@@ -3067,7 +3088,7 @@
         } catch (error) {
             if (previewCanceled) return;
             console.error('Viewer 初始化失败:', error);
-            handleViewerInitializationFailure(galleryContainer, imageData);
+            await handleViewerInitializationFailure(galleryContainer, imageData);
         }
     }
 
@@ -3113,9 +3134,9 @@
 
     /**
      * 创建图片画廊容器
-     * @returns {HTMLElement} 容器元素
+     * @returns {Promise<HTMLElement>} 容器元素
      */
-    function createImageGalleryContainer() {
+    async function createImageGalleryContainer() {
         const container = document.createElement('div');
         container.className = 'image-gallery-container';
         container.style.cssText = `
@@ -3128,7 +3149,10 @@
             overflow: hidden;
         `;
         
-        // 预先创建所有图片元素，并等待它们加载完成
+        // 预先创建所有图片元素，按顺序同步添加到 DOM，然后等待它们加载完成
+        const imgElements = new Array(images.length); // 预分配数组
+        console.log(`📊 开始创建图片元素，共 ${images.length} 张`);
+        
         const loadPromises = images.map((imgData, index) => {
             return new Promise((resolve, reject) => {
                 storage.get(`current_${imgData.id}`).then(blob => {
@@ -3142,6 +3166,10 @@
                     img.dataset.index = index.toString();
                     img.dataset.blobUrl = blobUrl;
                     img.loading = 'eager';
+
+                    // 保存引用到数组（保持顺序）- 在创建 img 后立即同步赋值
+                    imgElements[index] = img;
+                    console.log(`✅ [索引${index}] 已创建图片元素：${imgData.name}`);
 
                     const timeoutId = setTimeout(() => {
                         console.warn(`⏰ 图片 ${imgData.name} 加载超时`);
@@ -3161,8 +3189,6 @@
                         img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkxvYWQgRmFpbGVkPC90ZXh0Pjwvc3ZnPg==';
                         resolve(img); // 即使失败也继续
                     };
-
-                    container.appendChild(img);
                 }).catch(error => {
                     console.error(`图片 ${imgData.name} 加载异常:`, error);
                     reject(error);
@@ -3170,8 +3196,24 @@
             });
         });
         
-        // 存储加载 Promise 到容器
-        container._loadPromises = Promise.allSettled(loadPromises);
+        // 等待所有图片元素创建完成后再添加到 DOM
+        await Promise.allSettled(loadPromises);
+        
+        console.log(`📊 Map 完成：imgElements 长度=${imgElements.length}, 已赋值=${imgElements.filter(x => x).length}`);
+        
+        // 按顺序将所有图片添加到容器（保证 DOM 顺序与 images 数组一致）
+        imgElements.forEach((img, index) => {
+            if (img) {
+                container.appendChild(img);
+            } else {
+                console.warn(`⚠️ 图片索引 ${index} 对应的元素未创建成功`);
+            }
+        });
+        
+        console.log(`📊 共创建 ${imgElements.length} 个图片元素，实际添加到 DOM ${container.children.length} 个`);
+        
+        // 存储加载 Promise 到容器（已经完成了）
+        container._loadPromises = Promise.resolve();
         
         document.body.appendChild(container);
         return container;
@@ -3219,7 +3261,7 @@
             }
                 
             console.error('❌ Viewer.js 初始化失败:', error);
-            handleViewerInitializationFailure(container, imageData);
+            await handleViewerInitializationFailure(container, imageData);
         }
     }
 
@@ -3287,7 +3329,6 @@
                 scalable: true,
                 transition: false,   // 关闭动画
                 fullscreen: true,
-                loop: true,
                 
                 // 过滤器：优化图片加载判断逻辑
                 filter(image) {
@@ -3305,19 +3346,27 @@
                 // 生命周期事件
                 ready() {
                     console.log('✅ Viewer.js 已准备就绪');
-                    // Viewer 准备好后，再次检查图片加载状态
-                    const viewerImages = container.querySelectorAll('img');
-                    viewerImages.forEach((img, idx) => {
-                        if (img.complete && img.naturalWidth > 0) {
-                            console.log(`✅ 图片 ${idx + 1}/${viewerImages.length} 已加载完成`);
-                        } else {
-                            console.log(`⏳ 图片 ${idx + 1}/${viewerImages.length} 仍在加载中...`);
-                        }
-                    });
                 },
                                 
                 shown() {
-                    console.log('✅ Viewer.js 已显示');
+                    // 统计加载成功和失败的图片
+                    const viewerImages = container.querySelectorAll('img');
+                    let loadedCount = 0;
+                    let failedImages = [];
+                    
+                    viewerImages.forEach((img, idx) => {
+                        if (img.complete && img.naturalWidth > 0) {
+                            loadedCount++;
+                        } else {
+                            failedImages.push(idx + 1);
+                        }
+                    });
+                    
+                    if (failedImages.length === 0) {
+                        console.log(`✅ 已加载${loadedCount}张图片`);
+                    } else {
+                        console.log(`✅ 已加载${loadedCount}张图片，图片${failedImages.join('、')}失败`);
+                    }
                 },
                                 
                 viewed(event) {
@@ -3348,12 +3397,41 @@
             
             // 显示查看器
             viewerInstance.show();
+                        
+            // 延迟一小段时间确保 DOM 完全渲染
+            await new Promise(resolve => setTimeout(resolve, 50));
             
-            // 定位到目标图片
-            const targetIndex = images.findIndex(img => img.id === targetImageId);
-            if (targetIndex >= 0) {
-                viewerInstance.view(targetIndex);
-                console.log(`🎯 定位到目标图片 (索引: ${targetIndex})`);
+            // 定位到目标图片 - 通过 data-imageId 属性查找 DOM 中的实际位置
+            const targetImg = container.querySelector(`img[data-image-id="${targetImageId}"]`);
+            if (targetImg) {
+                const domIndex = Array.from(container.children).indexOf(targetImg);
+                console.log(`🔍 容器中共有 ${container.children.length} 张图片`);
+                console.log(`🎯 找到目标图片，DOM 索引：${domIndex}`);
+                viewerInstance.view(domIndex);
+            } else {
+                // 详细调试信息
+                console.error(`❌ 未在 DOM 中找到目标图片：${targetImageId}`);
+                console.log(`📊 容器中的图片元素:`);
+                Array.from(container.children).forEach((img, idx) => {
+                    const imageId = img.dataset?.imageId || '无 ID';
+                    console.log(`  [${idx}] ID: ${imageId}, Alt: ${img.alt}`);
+                });
+                                
+                // 尝试使用 Viewer.js 的 images 数组访问（Viewer.js 1.x 使用 images 而非 list）
+                if (viewerInstance && viewerInstance.images) {
+                    console.log(`📋 Viewer.js images 中有 ${viewerInstance.images.length} 张图片`);
+                    viewerInstance.images.forEach((img, idx) => {
+                        const imageId = img.dataset?.imageId || '无 ID';
+                        console.log(`  [${idx}] ID: ${imageId}, Alt: ${img.alt}`);
+                    });
+                                    
+                    // 尝试在 Viewer.js 的 images 中查找
+                    const foundIndex = viewerInstance.images.findIndex(img => img.dataset?.imageId === targetImageId);
+                    if (foundIndex >= 0) {
+                        console.log(`✅ 在 Viewer.js images 中找到目标图片，索引：${foundIndex}`);
+                        viewerInstance.view(foundIndex);
+                    }
+                }
             }
             
         } catch (error) {
@@ -3403,11 +3481,11 @@
     }
 
     /**
-     * 处理Viewer.js初始化失败的情况
+     * 处理 Viewer.js 初始化失败的情况
      * @param {HTMLElement} container - 容器元素
      * @param {Object} imageData - 图片数据
      */
-    function handleViewerInitializationFailure(container, imageData) {
+    async function handleViewerInitializationFailure(container, imageData) {
         // 检查是否因取消而失败
         if (previewCanceled) {
             console.log('⏭️ 预览操作已被取消，跳过失败处理');
@@ -3417,15 +3495,32 @@
             }
             return;
         }
-        
+            
         // 清理容器
         if (container && container.parentNode) {
             container.parentNode.removeChild(container);
         }
-        
+            
         // 启用基础图片查看器作为兜底方案
         console.log('ℹ️ 启用基础图片查看器作为替代方案');
-        showBasicImageViewer(imageData);
+            
+        // 获取当前图片 Blob 并创建临时 URL
+        try {
+            const blob = await storage.get(`current_${imageData.id}`);
+            if (blob) {
+                const url = URL.createObjectURL(blob);
+                showBasicImageViewer({ blobUrl: url, originalName: imageData.name });
+                // 延迟释放 URL，确保图片加载完成
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                    console.log('🔓 已释放临时 Blob URL');
+                }, 1000);
+            } else {
+                console.error('无法获取图片数据:', imageData.id);
+            }
+        } catch (error) {
+            console.error('获取图片 Blob 失败:', error);
+        }
     }
 
     /**
@@ -3519,22 +3614,33 @@
         }
     });
     
-    // 显示开源许可证信息
+    // 显示开源许可证信息（新标签页打开）
     function showLicenseInfo() {
-        // 保存整个页脚内容
-        const footerContent = document.querySelector('body').lastElementChild.outerHTML;
+        const licenseContent = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>开源许可证 - 图片混淆工具</title>
+    <style>
+        body { margin: 0; padding: 20px; font-family: Arial, sans-serif; background: white; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { color: #333; text-align: center; margin-bottom: 30px; font-size: 2em; }
+        h2 { color: #0091ff; margin: 30px 0 15px 0; border-bottom: 2px solid #0091ff; padding-bottom: 5px; }
+        a { color: #0091ff; text-decoration: underline; }
+        .license-text { white-space: pre-wrap; font-family: 'Courier New', monospace; background: #f8f8f8; padding: 25px; border-radius: 4px; border-left: 4px solid #0091ff; margin-bottom: 30px; }
+        p { color: #666; font-style: italic; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>开源许可证</h1>
         
-        // 直接替换页脚内容为许可证内容
-        document.querySelector('body').lastElementChild.outerHTML = `
-<div style="width: 100vw; height: 100vh; position: fixed; top: 0; left: 0; background: white; padding: 20px; box-sizing: border-box; overflow-y: auto;">
-    <div style="max-width: 100%; margin: 0 auto; padding: 20px;">
-        <h1 style="color: #333; text-align: center; margin-bottom: 30px; font-size: 2em;">开源许可证</h1>
-        
-        <h2 style="color: #0091ff; margin: 30px 0 15px 0; border-bottom: 2px solid #0091ff; padding-bottom: 5px;">Image Obfuscation Tool</h2>
-        <div style="white-space: pre-wrap; font-family: 'Courier New', monospace; background: #f8f8f8; padding: 25px; border-radius: 4px; border-left: 4px solid #0091ff; margin-bottom: 30px;">
-MIT License
+        <h2><a href="https://github.com/cnpxs1/Image-obfuscation-tool" target="_blank">Image-Obfuscation-Tool</a></h2>
+        <div class="license-text">MIT License
 
-Copyright © 2026 cnpxs1
+Copyright © 2026-present cnpxs1
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -3552,13 +3658,11 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-        </div>
+SOFTWARE.</div>
         
-        <h2 style="color: #0091ff; margin: 30px 0 15px 0; border-bottom: 2px solid #0091ff; padding-bottom: 5px;"><a href="https://github.com/fengyuanchen/viewerjs" target="_blank" style="color: #0091ff; text-decoration: underline;">Viewer.js</a></h2>
-        <p style="color: #666; font-style: italic; margin-bottom: 15px;">JavaScript 图像查看器</p>
-        <div style="white-space: pre-wrap; font-family: 'Courier New', monospace; background: #f8f8f8; padding: 25px; border-radius: 4px; border-left: 4px solid #0091ff; margin-bottom: 30px;">
-The MIT License (MIT)
+        <h2><a href="https://github.com/fengyuanchen/viewerjs" target="_blank">Viewer.js</a></h2>
+        <p>JavaScript 图像查看器</p>
+        <div class="license-text">The MIT License (MIT)
 
 Copyright 2015-present Chen Fengyuan
 
@@ -3578,42 +3682,23 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-        </div>
-        
-        <div style="text-align: center; margin-top: 20px;">
-            <button onclick="goBackToMain()" style="background: #0091ff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;">关闭</button>
-        </div>
+THE SOFTWARE.</div>
     </div>
-</div>`;
+</body>
+</html>`;
         
-        // 添加返回函数
-        window.goBackToMain = function() {
-            // 恢复页脚内容
-            document.querySelector('body').lastElementChild.outerHTML = footerContent;
-            // 重新绑定事件
-            setTimeout(() => {
-                bindFooterEvents();
-            }, 100);
-        };
-    }
-    
-    // 绑定页脚事件
-    function bindFooterEvents() {
-        const licenseLink = document.querySelector('a[onclick*="showLicenseInfo"]');
-        if (licenseLink) {
-            licenseLink.onclick = function(e) {
-                e.preventDefault();
-                showLicenseInfo();
-                return false;
-            };
+        // 在新标签页中打开
+        const newWindow = window.open('', '_blank');
+        if (newWindow) {
+            newWindow.document.write(licenseContent);
+            newWindow.document.close();
+        } else {
+            alert('请允许弹出窗口以查看许可证信息');
         }
     }
     
     // 页面加载完成后绑定事件
     document.addEventListener('DOMContentLoaded', function() {
-        bindFooterEvents();
-            
         // 全局 resize 监听：窗口大小改变时更新 Viewer 布局（带防抖）
         window.addEventListener('resize', handleWindowResize);
             
