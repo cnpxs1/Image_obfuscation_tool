@@ -378,11 +378,6 @@
             font-size: 0.9rem;
         }
 
-        /* Viewer.js 导航栏图片不透明度设为 100 */
-        .viewer-list > li {
-            opacity: 100 !important;
-        }
-
         /* 错误日志面板 */
         .error-log-panel {
             background-color: #ffe6e6;
@@ -2040,11 +2035,16 @@
         const newBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
         // 存储当前图片
         await storage.set(`current_${imageData.id}`, newBlob);
-        // 更新预览
-        await updateThumbnail(imageData.id, newBlob);
-        // 更新格式信息
+        
+        // 更新图片元数据（不修改尺寸，只更新格式和状态）
         imageData.format = 'PNG';
         imageData.processed = true;
+        imageData.size = newBlob.size; // 更新文件大小
+        
+        // 更新预览
+        await updateThumbnail(imageData.id, newBlob);
+        // 更新界面显示
+        updateImageInfo(imageData.id);
 
         // 释放 canvas
         releaseCanvasToPool(canvas);
@@ -2070,13 +2070,8 @@
                 ctx.drawImage(bitmap, 0, 0);
                 bitmap.close();
                     
-                // 更新元数据中的尺寸
-                const imgData = images.find(img => img.id === imageId);
-                if (imgData) {
-                    imgData.width = bitmap.width;
-                    imgData.height = bitmap.height;
-                    updateImageInfo(imageId);
-                }
+                // 只更新界面显示，不修改元数据中的尺寸（保持首次获取的尺寸不变）
+                updateImageInfo(imageId);
             } catch (e) {
                 console.warn('更新缩略图失败', e);
             }
@@ -2365,14 +2360,22 @@
         await storage.set(`original_${id}`, blob);
         await storage.set(`current_${id}`, blob); // 当前图片初始为原始
 
+        // 先获取图片尺寸
+        const bitmap = await createImageBitmap(blob);
+        const width = bitmap.width;
+        const height = bitmap.height;
+        bitmap.close();
+
         const imageData = {
             id,
             name: file.name,
             originalName: file.name,
             status: 'original',
             size: blob.size,  // 注意：如果是回退转换，文件大小可能变化
-            width: 0,
-            height: 0,
+            width: width,
+            height: height,
+            naturalWidth: width,
+            naturalHeight: height,
             format: originalFormat,
             processed: false
         };
@@ -2386,12 +2389,8 @@
             const desc = document.getElementById('description-text');
             if (desc) desc.style.display = 'none';
         }
-
-        // 获取尺寸用于显示
-        const bitmap = await createImageBitmap(blob);
-        imageData.width = bitmap.width;
-        imageData.height = bitmap.height;
-        bitmap.close();
+        
+        // 更新界面显示
         updateImageInfo(imageData.id);
     }
 
@@ -2516,15 +2515,23 @@
             const sizeRow = infoDiv.querySelector('.image-info-row');
             let targetElementForFileSize; // 用于确定文件大小元素的插入位置
             
+            // 检查尺寸数据是否有效
+            const hasValidSize = imageData.hasOwnProperty('width') && 
+                                imageData.hasOwnProperty('height') && 
+                                typeof imageData.width === 'number' && 
+                                typeof imageData.height === 'number' &&
+                                imageData.width > 0 && 
+                                imageData.height > 0;
+            
             if (sizeRow) {
-                sizeRow.innerHTML = `<span>${imageData.width > 0 && imageData.height > 0 ? 
+                sizeRow.innerHTML = `<span>${hasValidSize ? 
                     `${imageData.width}×${imageData.height}` : 
                     '<span style="color: #999; font-style: italic;">尺寸未知</span>'}</span>`;
                 targetElementForFileSize = sizeRow;
             } else {
                 const newRow = document.createElement('div');
                 newRow.className = 'image-info-row';
-                newRow.innerHTML = `<span>${imageData.width > 0 && imageData.height > 0 ? 
+                newRow.innerHTML = `<span>${hasValidSize ? 
                     `${imageData.width}×${imageData.height}` : 
                     '<span style="color: #999; font-style: italic;">尺寸未知</span>'}</span>`;
                 infoDiv.insertBefore(newRow, fileNameDiv.nextSibling);
@@ -3064,7 +3071,7 @@
         currentPreviewController = new AbortController();
         
         // 3. 创建新容器
-        const galleryContainer = createImageGalleryContainer();
+        const galleryContainer = await createImageGalleryContainer();
                 
         try {
             // 4. 等待 Viewer 资源加载并初始化
@@ -3127,9 +3134,9 @@
 
     /**
      * 创建图片画廊容器
-     * @returns {HTMLElement} 容器元素
+     * @returns {Promise<HTMLElement>} 容器元素
      */
-    function createImageGalleryContainer() {
+    async function createImageGalleryContainer() {
         const container = document.createElement('div');
         container.className = 'image-gallery-container';
         container.style.cssText = `
@@ -3142,7 +3149,10 @@
             overflow: hidden;
         `;
         
-        // 预先创建所有图片元素，并等待它们加载完成
+        // 预先创建所有图片元素，按顺序同步添加到 DOM，然后等待它们加载完成
+        const imgElements = new Array(images.length); // 预分配数组
+        console.log(`📊 开始创建图片元素，共 ${images.length} 张`);
+        
         const loadPromises = images.map((imgData, index) => {
             return new Promise((resolve, reject) => {
                 storage.get(`current_${imgData.id}`).then(blob => {
@@ -3156,6 +3166,10 @@
                     img.dataset.index = index.toString();
                     img.dataset.blobUrl = blobUrl;
                     img.loading = 'eager';
+
+                    // 保存引用到数组（保持顺序）- 在创建 img 后立即同步赋值
+                    imgElements[index] = img;
+                    console.log(`✅ [索引${index}] 已创建图片元素：${imgData.name}`);
 
                     const timeoutId = setTimeout(() => {
                         console.warn(`⏰ 图片 ${imgData.name} 加载超时`);
@@ -3175,8 +3189,6 @@
                         img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkxvYWQgRmFpbGVkPC90ZXh0Pjwvc3ZnPg==';
                         resolve(img); // 即使失败也继续
                     };
-
-                    container.appendChild(img);
                 }).catch(error => {
                     console.error(`图片 ${imgData.name} 加载异常:`, error);
                     reject(error);
@@ -3184,8 +3196,24 @@
             });
         });
         
-        // 存储加载 Promise 到容器
-        container._loadPromises = Promise.allSettled(loadPromises);
+        // 等待所有图片元素创建完成后再添加到 DOM
+        await Promise.allSettled(loadPromises);
+        
+        console.log(`📊 Map 完成：imgElements 长度=${imgElements.length}, 已赋值=${imgElements.filter(x => x).length}`);
+        
+        // 按顺序将所有图片添加到容器（保证 DOM 顺序与 images 数组一致）
+        imgElements.forEach((img, index) => {
+            if (img) {
+                container.appendChild(img);
+            } else {
+                console.warn(`⚠️ 图片索引 ${index} 对应的元素未创建成功`);
+            }
+        });
+        
+        console.log(`📊 共创建 ${imgElements.length} 个图片元素，实际添加到 DOM ${container.children.length} 个`);
+        
+        // 存储加载 Promise 到容器（已经完成了）
+        container._loadPromises = Promise.resolve();
         
         document.body.appendChild(container);
         return container;
@@ -3369,12 +3397,41 @@
             
             // 显示查看器
             viewerInstance.show();
+                        
+            // 延迟一小段时间确保 DOM 完全渲染
+            await new Promise(resolve => setTimeout(resolve, 50));
             
-            // 定位到目标图片
-            const targetIndex = images.findIndex(img => img.id === targetImageId);
-            if (targetIndex >= 0) {
-                viewerInstance.view(targetIndex);
-                console.log(`🎯 定位到目标图片 (索引: ${targetIndex})`);
+            // 定位到目标图片 - 通过 data-imageId 属性查找 DOM 中的实际位置
+            const targetImg = container.querySelector(`img[data-image-id="${targetImageId}"]`);
+            if (targetImg) {
+                const domIndex = Array.from(container.children).indexOf(targetImg);
+                console.log(`🔍 容器中共有 ${container.children.length} 张图片`);
+                console.log(`🎯 找到目标图片，DOM 索引：${domIndex}`);
+                viewerInstance.view(domIndex);
+            } else {
+                // 详细调试信息
+                console.error(`❌ 未在 DOM 中找到目标图片：${targetImageId}`);
+                console.log(`📊 容器中的图片元素:`);
+                Array.from(container.children).forEach((img, idx) => {
+                    const imageId = img.dataset?.imageId || '无 ID';
+                    console.log(`  [${idx}] ID: ${imageId}, Alt: ${img.alt}`);
+                });
+                                
+                // 尝试使用 Viewer.js 的 images 数组访问（Viewer.js 1.x 使用 images 而非 list）
+                if (viewerInstance && viewerInstance.images) {
+                    console.log(`📋 Viewer.js images 中有 ${viewerInstance.images.length} 张图片`);
+                    viewerInstance.images.forEach((img, idx) => {
+                        const imageId = img.dataset?.imageId || '无 ID';
+                        console.log(`  [${idx}] ID: ${imageId}, Alt: ${img.alt}`);
+                    });
+                                    
+                    // 尝试在 Viewer.js 的 images 中查找
+                    const foundIndex = viewerInstance.images.findIndex(img => img.dataset?.imageId === targetImageId);
+                    if (foundIndex >= 0) {
+                        console.log(`✅ 在 Viewer.js images 中找到目标图片，索引：${foundIndex}`);
+                        viewerInstance.view(foundIndex);
+                    }
+                }
             }
             
         } catch (error) {
