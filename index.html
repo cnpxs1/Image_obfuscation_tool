@@ -822,27 +822,36 @@
             
             // 关闭查看器的函数
             function closeBasicViewer() {
-                // 清理通过addEventListener添加的事件监听器
+                // 清理通过 addEventListener 添加的事件监听器
                 cleanupEventListeners();
-                
+                            
                 // 清理全局事件监听器
                 document.removeEventListener('keydown', escHandler);
-                
+                            
                 // 移除查看器容器
                 if (viewerContainer.parentNode) {
                     viewerContainer.parentNode.removeChild(viewerContainer);
                 }
-                
+                            
                 // 重新启用页面滚动
                 document.body.style.overflow = '';
-                
+                            
                 // 清理图片资源
                 if (img) {
                     img.onload = null;
                     img.onerror = null;
                     img.onclick = null;
+                    // 释放 Blob URL（如果存在）
+                    if (img.src && img.src.startsWith('blob:')) {
+                        try {
+                            URL.revokeObjectURL(img.src);
+                            console.log('🔓 已释放基础查看器的 Blob URL');
+                        } catch (error) {
+                            console.warn('释放 Blob URL 失败:', error);
+                        }
+                    }
                 }
-                
+                            
                 // 清理按钮事件
                 if (closeBtn) {
                     closeBtn.onclick = null;
@@ -850,7 +859,7 @@
                     closeBtn.onmouseenter = null;
                     closeBtn.onmouseleave = null;
                 }
-                
+                            
                 console.log('基础查看器已关闭并清理资源');
             }
             
@@ -3403,11 +3412,11 @@
     }
 
     /**
-     * 处理Viewer.js初始化失败的情况
+     * 处理 Viewer.js 初始化失败的情况
      * @param {HTMLElement} container - 容器元素
      * @param {Object} imageData - 图片数据
      */
-    function handleViewerInitializationFailure(container, imageData) {
+    async function handleViewerInitializationFailure(container, imageData) {
         // 检查是否因取消而失败
         if (previewCanceled) {
             console.log('⏭️ 预览操作已被取消，跳过失败处理');
@@ -3417,15 +3426,32 @@
             }
             return;
         }
-        
+            
         // 清理容器
         if (container && container.parentNode) {
             container.parentNode.removeChild(container);
         }
-        
+            
         // 启用基础图片查看器作为兜底方案
         console.log('ℹ️ 启用基础图片查看器作为替代方案');
-        showBasicImageViewer(imageData);
+            
+        // 获取当前图片 Blob 并创建临时 URL
+        try {
+            const blob = await storage.get(`current_${imageData.id}`);
+            if (blob) {
+                const url = URL.createObjectURL(blob);
+                showBasicImageViewer({ blobUrl: url, originalName: imageData.name });
+                // 延迟释放 URL，确保图片加载完成
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                    console.log('🔓 已释放临时 Blob URL');
+                }, 1000);
+            } else {
+                console.error('无法获取图片数据:', imageData.id);
+            }
+        } catch (error) {
+            console.error('获取图片 Blob 失败:', error);
+        }
     }
 
     /**
