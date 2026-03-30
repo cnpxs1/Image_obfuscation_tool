@@ -74,6 +74,7 @@
             max-width: 600px;
             cursor: pointer;
             transition: border-color 0.3s;
+            min-height: 150px; /* 为内容预留最小高度 */
         }
 
         .drop-zone.drag-over {
@@ -944,22 +945,17 @@
         基于希尔伯特曲线的图片混淆。混淆算法保持像素的空间相关性，混淆图被压缩仍能保持色彩。
     </div>
 
-    <div class="controls-section">
-        <span class="normal_button" style="background-color: #ffbb00;color:#ffffff;">
-            添加图片<input type="file" accept="image/*" id="add-images" class="ipt_btn" multiple />
-        </span>
-        <button id="clear-all" class="normal_button" style="background-color: #ff1100;color:#fff;">清空列表</button>
-    </div>
-
     <div class="drop-zone" id="dropZone">
-        <p>拖拽图片文件到这里，或点击选择文件</p>
-        <p style="font-size: 0.9rem; color: #666;">支持多个文件批量处理</p>
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+            <p style="margin-bottom: 0.5rem;">拖拽图片文件到这里，或点击选择文件</p>
+            <p style="font-size: 0.9rem; color: #666; margin-top: 0; margin-bottom: 1rem;">支持多个文件批量处理</p>
+            <span class="normal_button" style="background-color: #ffbb00;color:#ffffff;display:inline-block;">
+                添加图片<input type="file" accept="image/*" id="add-images" class="ipt_btn" multiple />
+            </span>
+        </div>
     </div>
 
     <div class="controls-section">
-        <button id="encrypt-btn" class="normal_button" style="background-color: #7928c1;color:#fff;">混淆</button>
-        <button id="decrypt-btn" class="normal_button" style="background-color: #eb3678;color:#fff;">解混淆</button>
-        <button id="restore-btn" class="normal_button" style="background-color: #fb773c;color:#fff;">还原</button>
         <label for="save-format-select" class="normal_button" style="background-color: #4CAF50;color:#fff;display:inline-flex;align-items:center;justify-content:center;height:2rem;font-size:1rem;padding:0 0.5rem;margin:0.3rem;border:0;border-radius:6px;cursor:pointer;">保存格式:
             <select id="save-format-select" style="margin-left:0.3rem;background-color:white;color:#333;height:1.5rem;border:1px solid #ccc;border-radius:4px;padding:0 0.2rem;font-size:0.9rem;cursor:pointer;">
                 <option value="png">PNG</option>
@@ -969,8 +965,15 @@
             </select>
         </label>
         <button id="save-format-btn" class="normal_button" style="background-color: #4caf50;color:#fff;">保存所选</button>
+    </div>
+
+    <div class="controls-section">
+        <button id="encrypt-btn" class="normal_button" style="background-color: #7928c1;color:#fff;">混淆</button>
+        <button id="decrypt-btn" class="normal_button" style="background-color: #eb3678;color:#fff;">解混淆</button>
+        <button id="restore-btn" class="normal_button" style="background-color: #fb773c;color:#fff;">还原</button>
         <button id="select-all" class="normal_button" style="background-color: #0091ff;color:#fff;">全选</button>
         <button id="clear-selection" class="normal_button" style="background-color: #666;color:#fff;">清空选择</button>
+        <button id="clear-all" class="normal_button" style="background-color: #ff1100;color:#fff;">删除全部</button>
     </div>
 
     <div class="batch-status" id="batchStatus"></div>
@@ -1995,6 +1998,8 @@
         const bitmap = await createImageBitmap(sourceBlob);
         const canvas = getCanvasFromPool(bitmap.width, bitmap.height);
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        // 清除旧内容，避免透明图层残留
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(bitmap, 0, 0);
         bitmap.close();
 
@@ -2067,6 +2072,8 @@
                 canvas.width = bitmap.width;
                 canvas.height = bitmap.height;
                 const ctx = canvas.getContext('2d');
+                // 清除旧内容，避免透明图层残留
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(bitmap, 0, 0);
                 bitmap.close();
                     
@@ -2277,6 +2284,8 @@
         const bitmap = await createImageBitmap(blob);
         const canvas = getCanvasFromPool(bitmap.width, bitmap.height);
         const ctx = canvas.getContext('2d');
+        // 清除旧内容，避免导出多余内容
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(bitmap, 0, 0);
         bitmap.close();
 
@@ -2343,6 +2352,8 @@
                     // 将 ImageBitmap 绘制到 canvas 并导出为 PNG Blob
                     const canvas = getCanvasFromPool(bitmap.width, bitmap.height);
                     const ctx = canvas.getContext('2d');
+                    // 清除旧内容，避免透明图层残留
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(bitmap, 0, 0);
                     bitmap.close();
                     blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
