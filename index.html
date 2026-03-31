@@ -74,7 +74,7 @@
             max-width: 600px;
             cursor: pointer;
             transition: border-color 0.3s;
-            min-height: 150px; /* 为内容预留最小高度 */
+            min-height: 100px; /* 为内容预留最小高度 */
         }
 
         .drop-zone.drag-over {
@@ -268,8 +268,8 @@
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
-            gap: 0.5rem;
-            margin: 1rem 0;
+            gap: 10px;
+            margin: 0;
         }
 
         /* 选择复选框 */
@@ -946,34 +946,36 @@
     </div>
 
     <div class="drop-zone" id="dropZone">
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
             <p style="margin-bottom: 0.5rem;">拖拽图片文件到这里，或点击选择文件</p>
-            <p style="font-size: 0.9rem; color: #666; margin-top: 0; margin-bottom: 1rem;">支持多个文件批量处理</p>
-            <span class="normal_button" style="background-color: #ffbb00;color:#ffffff;display:inline-block;">
-                添加图片<input type="file" accept="image/*" id="add-images" class="ipt_btn" multiple />
+            <p style="font-size: 0.5rem; color: #666; margin-top: 0; margin-bottom: 0.25rem;">支持多个文件批量处理</p>
+            <span class="normal_button" style="background-color: #ffbb00;color:#ffffff;display:inline-block; pointer-events: none; width: 85px; height: 38px; line-height: 38px; font-size: 19px;">
+                添加图片<input type="file" accept="image/*" id="add-images" class="ipt_btn" multiple style="pointer-events: none;" />
             </span>
         </div>
     </div>
 
-    <div class="controls-section">
-        <label for="save-format-select" class="normal_button" style="background-color: #4CAF50;color:#fff;display:inline-flex;align-items:center;justify-content:center;height:2rem;font-size:1rem;padding:0 0.5rem;margin:0.3rem;border:0;border-radius:6px;cursor:pointer;">保存格式:
-            <select id="save-format-select" style="margin-left:0.3rem;background-color:white;color:#333;height:1.5rem;border:1px solid #ccc;border-radius:4px;padding:0 0.2rem;font-size:0.9rem;cursor:pointer;">
-                <option value="png">PNG</option>
-                <option value="jpg">JPG</option>
-                <option value="bmp">BMP</option>
-                <option value="webp">WebP</option>
-            </select>
-        </label>
-        <button id="save-format-btn" class="normal_button" style="background-color: #4caf50;color:#fff;">保存所选</button>
-    </div>
+    <div class="controls-container" style="background: #fff; border-bottom: 1px solid #eee; padding: 0 0; position: sticky; top: 0; z-index: 100;">
+        <div class="controls-section" style="gap: 0;">
+            <label for="save-format-select" class="normal_button" style="background-color: #4CAF50;color:#fff;display:inline-flex;align-items:center;justify-content:center;height:2rem;font-size:1rem;padding:0 0.5rem;margin:0.3rem;border:0;border-radius:6px;cursor:pointer;">保存格式:
+                <select id="save-format-select" style="margin-left:0.3rem;background-color:white;color:#333;height:1.5rem;border:1px solid #ccc;border-radius:4px;padding:0 0.2rem;font-size:0.9rem;cursor:pointer;">
+                    <option value="png">PNG</option>
+                    <option value="jpg">JPG</option>
+                    <option value="bmp">BMP</option>
+                    <option value="webp">WebP</option>
+                </select>
+            </label>
+            <button id="save-format-btn" class="normal_button" style="background-color: #4caf50;color:#fff;">保存所选</button>
+        </div>
 
-    <div class="controls-section">
-        <button id="encrypt-btn" class="normal_button" style="background-color: #7928c1;color:#fff;">混淆</button>
-        <button id="decrypt-btn" class="normal_button" style="background-color: #eb3678;color:#fff;">解混淆</button>
-        <button id="restore-btn" class="normal_button" style="background-color: #fb773c;color:#fff;">还原</button>
-        <button id="select-all" class="normal_button" style="background-color: #0091ff;color:#fff;">全选</button>
-        <button id="clear-selection" class="normal_button" style="background-color: #666;color:#fff;">清空选择</button>
-        <button id="clear-all" class="normal_button" style="background-color: #ff1100;color:#fff;">删除全部</button>
+        <div class="controls-section" style="gap: 0;">
+            <button id="encrypt-btn" class="normal_button" style="background-color: #7928c1;color:#fff;min-width: 65px;">混 淆</button>
+            <button id="decrypt-btn" class="normal_button" style="background-color: #eb3678;color:#fff;min-width: 65px;">解混淆</button>
+            <button id="restore-btn" class="normal_button" style="background-color: #fb773c;color:#fff;min-width: 65px;">还 原</button>
+            <button id="select-all" class="normal_button" style="background-color: #0091ff;color:#fff;min-width: 65px;">全 选</button>
+            <button id="clear-selection" class="normal_button" style="background-color: #666;color:#fff;">清空选择</button>
+            <button id="clear-all" class="normal_button" style="background-color: #ff1100;color:#fff;">删除全部</button>
+        </div>
     </div>
 
     <div class="batch-status" id="batchStatus"></div>
@@ -2886,34 +2888,40 @@
     // =============================================
     // 拖拽功能
     // =============================================
-
+    
     const dropZone = document.getElementById('dropZone');
-
-    // 拖拽进入事件：添加视觉反馈
-    dropZone.addEventListener('dragover', (e) => {
+    
+    // =============================================
+    // 整页拖拽支持 - 在页面任意位置拖拽文件
+    // =============================================
+    
+    // 拖拽经过时：阻止默认行为并添加高亮样式
+    document.addEventListener('dragover', (e) => {
         e.preventDefault();
         dropZone.classList.add('drag-over');
     });
-
-    // 拖拽离开事件：移除视觉反馈
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('drag-over');
+    
+    // 拖拽离开时：智能判断鼠标位置再移除高亮
+    document.addEventListener('dragleave', (e) => {
+        if (e.relatedTarget === null || !dropZone.contains(e.relatedTarget)) {
+            dropZone.classList.remove('drag-over');
+        }
     });
-
-    // 拖拽放置事件：处理拖拽的文件
-    dropZone.addEventListener('drop', (e) => {
+    
+    // 文件放置时：处理拖拽的文件
+    document.addEventListener('drop', (e) => {
         e.preventDefault();
         dropZone.classList.remove('drag-over');
-
-        // 不再仅依赖MIME类型过滤，而是使用更严格的校验
+    
         const files = Array.from(e.dataTransfer.files);
-
         if (files.length > 0) {
             handleFiles(files);
         }
     });
-
+    
+    // =============================================
     // 点击拖拽区域：触发文件选择
+    // =============================================
     dropZone.addEventListener('click', () => {
         document.getElementById('add-images').click();
     });
