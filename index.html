@@ -939,6 +939,9 @@
     <script id="viewer-js-bootcdn" src="https://cdn.bootcdn.net/ajax/libs/viewerjs/1.11.7/viewer.min.js" onload="if(window.viewerResources){window.viewerResources.jsLoaded=true; window.viewerResources.currentCDN='bootcdn'}" onerror="loadCDNFallback('js', 'bootcdn')"></script>
 </head>
 <body>
+<!-- 缓存方案指示器 -->
+<div id="cacheIndicator" style="position: fixed; top: 10px; right: 10px; background: #fff; color: #333; border: 2px solid #4CAF50; padding: 5px 8px; border-radius: 6px; font-size: 12px; z-index: 9999; display: none;cursor: default;" title="">加载中...</div>
+
 <div class="main-content" style="text-align: center;">
     <h1>图片混淆工具</h1>
     <div id="description-text" style="display: inline-block; max-width: 500px; margin: 0 auto;">
@@ -974,7 +977,7 @@
             <button id="restore-btn" class="normal_button" style="background-color: #fb773c;color:#fff;min-width: 65px;">还 原</button>
             <button id="select-all" class="normal_button" style="background-color: #0091ff;color:#fff;min-width: 65px;">全 选</button>
             <button id="clear-selection" class="normal_button" style="background-color: #666;color:#fff;">清空选择</button>
-            <button id="clear-all" class="normal_button" style="background-color: #ff1100;color:#fff;">删除全部</button>
+            <button id="clear-all" class="normal_button" style="background-color: #ff1100;color:#fff;">删除所选</button>
         </div>
     </div>
 
@@ -1144,6 +1147,8 @@
                     this.isCacheApi = true;
                     this.backend = await caches.open(this.cacheName);
                     console.log('✅ 使用 Cache API');
+                    // 更新 UI 指示器
+                    setTimeout(() => updateCacheIndicator('Cache API'), 100);
                     return;
                 } catch (e) {
                     console.warn('Cache API 不可用，降级到 IndexedDB', e);
@@ -1153,6 +1158,8 @@
             this.isCacheApi = false;
             await this._initIndexedDB();
             console.log('✅ 使用 IndexedDB');
+            // 更新 UI 指示器
+            setTimeout(() => updateCacheIndicator('IndexedDB'), 100);
         }
     
         async _initIndexedDB() {
@@ -1245,6 +1252,24 @@
     
     // 全局存储实例
     const storage = new StorageAdapter();
+    
+    /**
+     * 更新缓存方案指示器显示
+     * @param {string} cacheType - 缓存类型
+     */
+    function updateCacheIndicator(cacheType) {
+        const indicator = document.getElementById('cacheIndicator');
+        if (indicator) {
+            indicator.textContent = cacheType;
+            indicator.style.display = 'block';
+            // 设置鼠标悬停时的描述
+            if (cacheType === 'Cache API') {
+                indicator.title = '当前使用 Cache API 存储（性能更优）';
+            } else {
+                indicator.title = '当前使用 IndexedDB 存储';
+            }
+        }
+    }
     
     // =============================================
     // 全局变量声明
@@ -2693,39 +2718,74 @@
     }
 
     /**
-     * 清空所有图片
+     * 删除选中的图片
      *
-     * 释放所有资源，清空图片列表和选择状态
+     * 释放选中图片的资源，从数组和 DOM 中移除，清空选择状态
      */
     async function clearAll() {
         if (isProcessing) {
             alert('正在处理中，请稍后...');
             return;
         }
-        // 清理存储中的数据
-        for (const img of images) {
-            await storage.delete(`original_${img.id}`);
-            await storage.delete(`current_${img.id}`);
+            
+        // 如果没有选中的图片，提示用户
+        if (selectedImages.size === 0) {
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = '⚠️ 请先选择要删除的图片';
+            setTimeout(() => statusDiv.innerHTML = '', 2000);
+            return;
         }
             
-        // 重置所有状态
-        images = [];
+        // 复制选中的 ID 集合，避免在迭代时修改集合
+        const idsToDelete = Array.from(selectedImages);
+            
+        // 先获取所有要删除的图片数据（在从数组移除之前）
+        const imagesToDelete = idsToDelete.map(id => images.find(img => img.id === id)).filter(Boolean);
+            
+        // 清理存储中的数据
+        for (const id of idsToDelete) {
+            await storage.delete(`original_${id}`);
+            await storage.delete(`current_${id}`);
+        }
+            
+        // 从数组中移除选中的图片
+        images = images.filter(img => !selectedImages.has(img.id));
+            
+        // 从 DOM 中移除选中的图片项
+        idsToDelete.forEach(id => {
+            const item = document.querySelector(`[data-id="${id}"]`);
+            if (item) {
+                item.remove();
+            }
+        });
+            
+        // 清理选中图片的 Blob URL 资源
+        imagesToDelete.forEach(imageData => {
+            if (typeof imageData.cleanup === 'function') {
+                imageData.cleanup();
+            } else {
+                // 兼容旧版本
+                if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(imageData.blobUrl);
+                }
+                if (imageData.originalBlobUrl && imageData.originalBlobUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(imageData.originalBlobUrl);
+                }
+            }
+        });
+            
+        // 重置选择状态
         selectedImages.clear();
-        // 清空图片列表，使用空白占位
-        document.getElementById('imageList').innerHTML = '<div class="empty-state" id="emptyState"></div>';
-        document.getElementById('batchStatus').innerHTML = '';
+            
+        // 更新计数器
         updateImageCounter();
             
-        // 清理 viewer 实例
-        if (viewerInstance) {
-            try {
-                viewerInstance.destroy();
-                console.log('已销毁 viewer 实例');
-            } catch (error) {
-                console.warn('销毁 viewer 实例时出错:', error);
-            }
-            viewerInstance = null;
+        // 如果没有图片了，显示空状态
+        if (images.length === 0) {
+            showEmptyState();
         }
+            
+        console.log(`已删除 ${idsToDelete.length} 张选中的图片`);
     }
 
     /**
@@ -3657,6 +3717,7 @@
         <h1>开源许可证</h1>
         
         <h2><a href="https://github.com/cnpxs1/Image-obfuscation-tool" target="_blank">Image-Obfuscation-Tool</a></h2>
+        <p>基于希尔伯特曲线的轻量化纯前端图像混淆/解混淆工具</p>
         <div class="license-text">MIT License
 
 Copyright © 2026-present cnpxs1
