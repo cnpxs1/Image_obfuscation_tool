@@ -974,7 +974,7 @@
             <button id="restore-btn" class="normal_button" style="background-color: #fb773c;color:#fff;min-width: 65px;">还 原</button>
             <button id="select-all" class="normal_button" style="background-color: #0091ff;color:#fff;min-width: 65px;">全 选</button>
             <button id="clear-selection" class="normal_button" style="background-color: #666;color:#fff;">清空选择</button>
-            <button id="clear-all" class="normal_button" style="background-color: #ff1100;color:#fff;">删除全部</button>
+            <button id="clear-all" class="normal_button" style="background-color: #ff1100;color:#fff;">删除所选</button>
         </div>
     </div>
 
@@ -2693,39 +2693,74 @@
     }
 
     /**
-     * 清空所有图片
+     * 删除选中的图片
      *
-     * 释放所有资源，清空图片列表和选择状态
+     * 释放选中图片的资源，从数组和 DOM 中移除，清空选择状态
      */
     async function clearAll() {
         if (isProcessing) {
             alert('正在处理中，请稍后...');
             return;
         }
-        // 清理存储中的数据
-        for (const img of images) {
-            await storage.delete(`original_${img.id}`);
-            await storage.delete(`current_${img.id}`);
+            
+        // 如果没有选中的图片，提示用户
+        if (selectedImages.size === 0) {
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = '⚠️ 请先选择要删除的图片';
+            setTimeout(() => statusDiv.innerHTML = '', 2000);
+            return;
         }
             
-        // 重置所有状态
-        images = [];
+        // 复制选中的 ID 集合，避免在迭代时修改集合
+        const idsToDelete = Array.from(selectedImages);
+            
+        // 先获取所有要删除的图片数据（在从数组移除之前）
+        const imagesToDelete = idsToDelete.map(id => images.find(img => img.id === id)).filter(Boolean);
+            
+        // 清理存储中的数据
+        for (const id of idsToDelete) {
+            await storage.delete(`original_${id}`);
+            await storage.delete(`current_${id}`);
+        }
+            
+        // 从数组中移除选中的图片
+        images = images.filter(img => !selectedImages.has(img.id));
+            
+        // 从 DOM 中移除选中的图片项
+        idsToDelete.forEach(id => {
+            const item = document.querySelector(`[data-id="${id}"]`);
+            if (item) {
+                item.remove();
+            }
+        });
+            
+        // 清理选中图片的 Blob URL 资源
+        imagesToDelete.forEach(imageData => {
+            if (typeof imageData.cleanup === 'function') {
+                imageData.cleanup();
+            } else {
+                // 兼容旧版本
+                if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(imageData.blobUrl);
+                }
+                if (imageData.originalBlobUrl && imageData.originalBlobUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(imageData.originalBlobUrl);
+                }
+            }
+        });
+            
+        // 重置选择状态
         selectedImages.clear();
-        // 清空图片列表，使用空白占位
-        document.getElementById('imageList').innerHTML = '<div class="empty-state" id="emptyState"></div>';
-        document.getElementById('batchStatus').innerHTML = '';
+            
+        // 更新计数器
         updateImageCounter();
             
-        // 清理 viewer 实例
-        if (viewerInstance) {
-            try {
-                viewerInstance.destroy();
-                console.log('已销毁 viewer 实例');
-            } catch (error) {
-                console.warn('销毁 viewer 实例时出错:', error);
-            }
-            viewerInstance = null;
+        // 如果没有图片了，显示空状态
+        if (images.length === 0) {
+            showEmptyState();
         }
+            
+        console.log(`已删除 ${idsToDelete.length} 张选中的图片`);
     }
 
     /**
