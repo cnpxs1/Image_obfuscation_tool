@@ -27,23 +27,25 @@
 
         /* 主要内容区域 */
         .main-content {
-            /* 已移除无效的 transform 样式 */
+
         }
 
         /* 缓存方案指示器 */
         #cacheIndicator {
             position: fixed;
-            top: 10px;
-            right: 10px;
+            top: 5px;
+            right: 5px;
             background: #fff;
             color: #333;
             border: 2px solid #4CAF50;
             padding: 5px 8px;
+            max-width: 75px;
             border-radius: 6px;
             font-size: 12px;
             z-index: 999; /* 低于图片查看器（基础查看器 10000，Viewer.js modal 通常>1000） */
             display: none;
             cursor: default;
+            white-space: nowrap;/* 禁止换行 */
         }
 
         /* 移动端适配 */
@@ -55,10 +57,10 @@
             /* 移动端时缓存指示器相对于 main-content 定位，在其上层并随内容滚动 */
             #cacheIndicator {
                 position: absolute;
-                top: 10px;
-                right: 10px;
+                top: 5px;
+                right: 5px;
                 margin-bottom: 10px;
-                font-size: 12px; /* 移动端增大字体 */
+                font-size: 12px;
                 padding: 5px 8px;
                 max-width: 75px;
                 white-space: nowrap;/* 禁止换行 */
@@ -976,6 +978,17 @@
         基于希尔伯特曲线的图片混淆。混淆算法保持像素的空间相关性，混淆图被压缩仍能保持色彩。
     </div>
 
+    <div class="controls-section" style="gap: 0;">
+        <label for="save-format-select" class="normal_button" style="background-color: #4CAF50;color:#fff;display:inline-flex;align-items:center;justify-content:center;height:2rem;font-size:1rem;padding:0 0.5rem;margin:0.3rem;border:0;border-radius:6px;cursor:pointer;">保存格式:
+            <select id="save-format-select" style="margin-left:0.3rem;background-color:white;color:#333;height:1.5rem;border:1px solid #ccc;border-radius:4px;padding:0 0.2rem;font-size:0.9rem;cursor:pointer;">
+                <option value="png">PNG</option>
+                <option value="jpg">JPG</option>
+                <option value="bmp">BMP</option>
+                <option value="webp">WebP</option>
+            </select>
+        </label>
+    </div>
+
     <div class="drop-zone" id="dropZone">
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
             <p style="margin-bottom: 0.5rem;">拖拽图片文件到这里，或点击选择文件</p>
@@ -988,24 +1001,13 @@
 
     <div class="controls-container" style="background: #fff; border-bottom: 1px solid #eee; padding: 0 0; position: sticky; top: 0; z-index: 100;">
         <div class="controls-section" style="gap: 0;">
-            <label for="save-format-select" class="normal_button" style="background-color: #4CAF50;color:#fff;display:inline-flex;align-items:center;justify-content:center;height:2rem;font-size:1rem;padding:0 0.5rem;margin:0.3rem;border:0;border-radius:6px;cursor:pointer;">保存格式:
-                <select id="save-format-select" style="margin-left:0.3rem;background-color:white;color:#333;height:1.5rem;border:1px solid #ccc;border-radius:4px;padding:0 0.2rem;font-size:0.9rem;cursor:pointer;">
-                    <option value="png">PNG</option>
-                    <option value="jpg">JPG</option>
-                    <option value="bmp">BMP</option>
-                    <option value="webp">WebP</option>
-                </select>
-            </label>
-            <button id="save-format-btn" class="normal_button" style="background-color: #4caf50;color:#fff;">保存所选</button>
-        </div>
-
-        <div class="controls-section" style="gap: 0;">
             <button id="encrypt-btn" class="normal_button" style="background-color: #7928c1;color:#fff;min-width: 65px;">混 淆</button>
             <button id="decrypt-btn" class="normal_button" style="background-color: #eb3678;color:#fff;min-width: 65px;">解混淆</button>
             <button id="restore-btn" class="normal_button" style="background-color: #fb773c;color:#fff;min-width: 65px;">还 原</button>
             <button id="select-all" class="normal_button" style="background-color: #0091ff;color:#fff;min-width: 65px;">全 选</button>
             <button id="clear-selection" class="normal_button" style="background-color: #666;color:#fff;">清空选择</button>
             <button id="clear-all" class="normal_button" style="background-color: #ff1100;color:#fff;">删除所选</button>
+            <button id="save-format-btn" class="normal_button" style="background-color: #4caf50;color:#fff;">保存所选</button>
         </div>
     </div>
 
