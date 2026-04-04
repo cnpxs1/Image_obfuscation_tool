@@ -5,11 +5,57 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>图片混淆工具</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-    <!-- Viewer.js CSS 智能加载 | 许可证：MIT License（详见页面底部「开源许可证」入口）-->
+    <!-- Viewer.js CSS 智能加载 | 许可证：MIT License -->
     <!-- 第一级：bootcdn CSS -->
     <link id="viewer-css" href="https://cdn.bootcdn.net/ajax/libs/viewerjs/1.11.7/viewer.min.css" rel="stylesheet" onload="if(window.viewerResources){window.viewerResources.cssLoaded=true; window.viewerResources.currentCDN='bootcdn'}" onerror="loadCDNFallback('css', 'bootcdn')">
-    <!-- fflate 库 - ZIP 压缩/解压 | 许可证：MIT License -->
-    <script src="./assets/fflate/fflate.js"></script>
+    <!-- fflate 库智能加载 - ZIP 压缩/解压 | 许可证：MIT License -->
+    <script>
+        // fflate 资源加载状态
+        window.fflateResources = {
+            loaded: false,
+            loading: false,
+            failed: false
+        };
+        
+        function loadFflate(cdnUrl, fallbackUrls, index = 0) {
+            if (window.fflateResources.loaded || window.fflateResources.loading) return;
+            window.fflateResources.loading = true;
+            
+            const script = document.createElement('script');
+            script.src = cdnUrl;
+            script.onload = () => {
+                window.fflateResources.loaded = true;
+                window.fflateResources.loading = false;
+                console.log('fflate 加载成功:', cdnUrl);
+            };
+            script.onerror = () => {
+                console.warn('fflate 加载失败:', cdnUrl);
+                window.fflateResources.loading = false;
+                if (index < fallbackUrls.length) {
+                    loadFflate(fallbackUrls[index], fallbackUrls, index + 1);
+                } else {
+                    window.fflateResources.failed = true;
+                    console.error('fflate 所有源均加载失败，ZIP 功能将不可用');
+                    // 禁用 ZIP 下载开关
+                    const zipToggle = document.getElementById('zip-download-toggle');
+                    if (zipToggle) {
+                        zipToggle.disabled = true;
+                        zipToggle.title = 'fflate 库加载失败，ZIP 功能不可用';
+                    }
+                }
+            };
+            document.head.appendChild(script);
+        }
+
+        // 优先级：BootCDN -> CDNJS -> 本地
+        loadFflate(
+            'https://fastly.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js',
+            [
+                'https://unpkg.com/fflate@0.8.2/umd/index.js',
+                './assets/fflate/fflate.js'
+            ]
+        );
+    </script>
     <!--
     图片混淆工具 - 基于希尔伯特曲线的图片混淆算法
     功能：支持图片的混淆、解混淆、还原操作，保持像素空间相关性
@@ -1365,6 +1411,16 @@
      * @returns {Promise<{added: number, errors: Array}>}
      */
     async function extractZipAndAddImages(zipFile) {
+        // 防御性检测：检查 fflate 是否可用
+        if (typeof fflate === 'undefined') {
+            console.error('fflate 未加载，ZIP 解压功能不可用');
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = '❌ ZIP 解压功能不可用（fflate 库未加载）';
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+            logError(zipFile.name, 'ZIP 解压失败: fflate 库未加载');
+            return { added: 0, errors: [{ name: zipFile.name, error: 'fflate 库未加载' }] };
+        }
+        
         const statusDiv = document.getElementById('batchStatus');
         statusDiv.innerHTML = `<div class="loading"></div> 正在解析 ZIP 文件...`;
 
@@ -1453,6 +1509,15 @@
      * @returns {Promise<void>}
      */
     async function saveImagesAsZip(format) {
+        // 防御性检测：检查 fflate 是否可用
+        if (typeof fflate === 'undefined') {
+            console.error('fflate 未加载，ZIP 打包功能不可用');
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = '❌ ZIP 打包功能不可用（fflate 库未加载）';
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+            return;
+        }
+        
         const targetIds = selectedImages.size > 0
             ? Array.from(selectedImages)
             : images.map(img => img.id);
