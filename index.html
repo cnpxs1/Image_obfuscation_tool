@@ -196,7 +196,63 @@
             display: flex;
             gap: 0.3rem;
             flex-wrap: nowrap;
-            width: calc(180px + 0.6rem); /* 3个按钮宽度(60px*3) + 2个间隙(0.3rem*2) */
+            width: calc(180px + 0.6rem); /* 3 个按钮宽度 (60px*3) + 2 个间隙 (0.3rem*2) */
+        }
+        
+        /* ZIP 下载切换开关样式 */
+        .zip-switch {
+            width: 9rem; /* 开关宽度 */
+            height: 2rem; /* 开关高度 */
+            margin: 0.3rem; /* 外边距 */
+            border-radius: 6px; /* 圆角半径 */
+            display: inline-block; /* 行内块级元素 */
+            position: relative; /* 相对定位，为子元素绝对定位提供参考 */
+            cursor: pointer; /* 鼠标悬停时显示手型指针 */
+            background: #4caf50; /* 默认背景色 */
+            overflow: hidden; /* 隐藏超出边界的内容 */
+            transition: 0.3s; /* 过渡效果时长 */
+        }
+        .zip-switch input {
+            opacity: 0; /* 隐藏原始复选框 */
+            position: absolute; /* 绝对定位 */
+        }
+        .zip-slider { /* 滑动轨道背景 */
+            position: absolute; /* 绝对定位填充整个开关 */
+            inset: 0; /* 上下左右均为 0，等同于 top:0; right:0; bottom:0; left:0; */
+        }
+        .zip-slider::before { /* 滑动按钮（伪元素） */
+            content: ""; /* 伪元素必需属性 */
+            position: absolute; /* 绝对定位 */
+            left: 0.25rem; /* 默认位置：左侧 */
+            top: 50%; /* 垂直居中 */
+            transform: translateY(-50%); /* 修正垂直居中偏移 */
+            width: 1.5rem; /* 滑块宽度 */
+            height: 1.5rem; /* 滑块高度 */
+            border-radius: 6px; /* 滑块圆角 */
+            background: #fff; /* 滑块颜色（白色） */
+            transition: 0.3s; /* 滑动过渡效果 */
+        }
+        .zip-slider::after { /* 状态文字标签（伪元素） */
+            content: "逐个下载"; /* 默认状态文字 */
+            position: absolute; /* 绝对定位填充整个开关 */
+            inset: 0; /* 填充整个区域 */
+            display: flex; /* 弹性布局，便于文字对齐 */
+            align-items: center; /* 垂直居中 */
+            justify-content: flex-end; /* 默认靠右对齐 */
+            padding-right: 0.6rem; /* 右侧内边距，为文字留出空间 */
+            color: #ffffff; /* 默认文字颜色 */
+        }
+        .zip-switch input:checked + .zip-slider { /* 选中状态时的轨道背景 */
+            background: #2196F3; /* 激活背景色 */
+        }
+        .zip-switch input:checked + .zip-slider::before { /* 选中状态时的滑块位置 */
+            transform: translate(7rem, -50%); /* 向右滑动 2rem，保持垂直居中 */
+        }
+        .zip-switch input:checked + .zip-slider::after { /* 选中状态时的文字标签 */
+            content: "打包为zip下载"; /* 切换后的状态文字 */
+            justify-content: flex-start; /* 改为靠左对齐 */
+            padding-left: 0.6rem; /* 左侧内边距 */
+            color: #ffffff; /* 激活文字颜色 */
         }
 
         /* 删除和保存按钮平均分配空间 */
@@ -977,6 +1033,11 @@
     </div>
 
     <div class="controls-section" style="gap: 0;">
+        <!-- fflate 打包下载开关 -->
+        <label class="zip-switch">
+            <input type="checkbox" id="zip-download-toggle" />
+            <div class="zip-slider"></div>
+        </label>
         <label for="save-format-select" class="normal_button" style="background-color: #4CAF50;color:#fff;display:inline-flex;align-items:center;justify-content:center;height:2rem;font-size:1rem;padding:0 0.5rem;margin:0.3rem;border:0;border-radius:6px;cursor:pointer;">保存格式:
             <select id="save-format-select" style="margin-left:0.3rem;background-color:white;color:#333;height:1.5rem;border:1px solid #ccc;border-radius:4px;padding:0 0.2rem;font-size:0.9rem;cursor:pointer;">
                 <option value="png">PNG</option>
