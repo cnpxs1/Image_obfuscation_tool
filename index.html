@@ -200,17 +200,47 @@
         }
         
         /* ZIP 下载切换开关样式 */
-        .zip-switch {
-            width: 9rem; /* 开关宽度 */
-            height: 2rem; /* 开关高度 */
+        .zip-switch-container {
+            display: inline-flex; /* 行内弹性布局 */
+            align-items: center; /* 垂直居中对齐 */
+            justify-content: center; /* 两端对齐 */
+            height: 2rem; /* 容器高度 */
+            padding: 0 0; /* 内边距 */
             margin: 0.3rem; /* 外边距 */
+            border: 2px solid #c8c8c8; /* 边框样式 */
             border-radius: 6px; /* 圆角半径 */
-            display: inline-block; /* 行内块级元素 */
+            background: #fff; /* 背景颜色 */
+            gap: 0.5rem; /* 子元素间距 */
+            box-sizing: border-box; /* 盒模型计算方式 */
+            transition: border-color 0s; /* 边框颜色过渡效果 */
+        }
+        .zip-switch-container:has(input:checked) {
+            border-color: #78c878; /* 开启状态边框颜色 */
+        }
+        .zip-switch-text::before {
+            content: "逐个下载"; /* 关闭状态文本 */
+            margin-right: 0.5rem; /* 文字右侧间距 */
+            position: relative;
+            top: -1px;
+        }
+        .zip-switch-container:has(input:checked) .zip-switch-text::before {
+            content: "打包下载"; /* 开启状态文本 */
+            margin-right: 0.5rem; /* 文字右侧间距 */
+            position: relative;
+            top: -1px;
+        }
+        .zip-switch {
+            width: 4rem; /* 开关宽度 */
+            height: calc(2rem - 4px); /* 开关高度 */
+            margin: 0; /* 外边距 */
+            border-radius: 4px; /* 圆角半径 */
+            display: block; /* 块级元素 */
             position: relative; /* 相对定位，为子元素绝对定位提供参考 */
             cursor: pointer; /* 鼠标悬停时显示手型指针 */
-            background: #4caf50; /* 默认背景色 */
+            background: #b4b4b4; /* 关闭状态背景色 */
             overflow: hidden; /* 隐藏超出边界的内容 */
             transition: 0.3s; /* 过渡效果时长 */
+            flex-shrink: 0;
         }
         .zip-switch input {
             opacity: 0; /* 隐藏原始复选框 */
@@ -226,35 +256,18 @@
             left: 0.25rem; /* 默认位置：左侧 */
             top: 50%; /* 垂直居中 */
             transform: translateY(-50%); /* 修正垂直居中偏移 */
-            width: 1.5rem; /* 滑块宽度 */
-            height: 1.5rem; /* 滑块高度 */
-            border-radius: 6px; /* 滑块圆角 */
+            width: calc(1.5rem - 2px); /* 滑块宽度 */
+            height: calc(1.5rem - 2px); /* 滑块高度 */
+            border-radius: 4px; /* 滑块圆角 */
             background: #fff; /* 滑块颜色（白色） */
             transition: 0.3s; /* 滑动过渡效果 */
         }
-        .zip-slider::after { /* 状态文字标签（伪元素） */
-            content: "逐个下载"; /* 默认状态文字 */
-            position: absolute; /* 绝对定位填充整个开关 */
-            inset: 0; /* 填充整个区域 */
-            display: flex; /* 弹性布局，便于文字对齐 */
-            align-items: center; /* 垂直居中 */
-            justify-content: flex-end; /* 默认靠右对齐 */
-            padding-right: 0.6rem; /* 右侧内边距，为文字留出空间 */
-            color: #ffffff; /* 默认文字颜色 */
-        }
         .zip-switch input:checked + .zip-slider { /* 选中状态时的轨道背景 */
-            background: #2196F3; /* 激活背景色 */
+            background: #4caf50; /* 激活背景色 */
         }
         .zip-switch input:checked + .zip-slider::before { /* 选中状态时的滑块位置 */
-            transform: translate(7rem, -50%); /* 向右滑动 2rem，保持垂直居中 */
+            transform: translate(calc(2rem + 2px), -50%); /* 向右滑动calc(2rem + 2px)，保持垂直居中 */
         }
-        .zip-switch input:checked + .zip-slider::after { /* 选中状态时的文字标签 */
-            content: "打包为zip下载"; /* 切换后的状态文字 */
-            justify-content: flex-start; /* 改为靠左对齐 */
-            padding-left: 0.6rem; /* 左侧内边距 */
-            color: #ffffff; /* 激活文字颜色 */
-        }
-
         /* 删除和保存按钮平均分配空间 */
         .action-group .action-btn {
             flex: 1;
@@ -1034,10 +1047,13 @@
 
     <div class="controls-section" style="gap: 0;">
         <!-- fflate 打包下载开关 -->
-        <label class="zip-switch">
-            <input type="checkbox" id="zip-download-toggle" />
-            <div class="zip-slider"></div>
-        </label>
+        <div class="zip-switch-container">
+            <label class="zip-switch">
+                <input type="checkbox" id="zip-download-toggle" />
+                <div class="zip-slider"></div>
+            </label>
+            <span class="zip-switch-text"></span>
+        </div>
         <label for="save-format-select" class="normal_button" style="background-color: #4CAF50;color:#fff;display:inline-flex;align-items:center;justify-content:center;height:2rem;font-size:1rem;padding:0 0.5rem;margin:0.3rem;border:0;border-radius:6px;cursor:pointer;">保存格式:
             <select id="save-format-select" style="margin-left:0.3rem;background-color:white;color:#333;height:1.5rem;border:1px solid #ccc;border-radius:4px;padding:0 0.2rem;font-size:0.9rem;cursor:pointer;">
                 <option value="png">PNG</option>
