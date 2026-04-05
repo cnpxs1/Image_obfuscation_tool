@@ -170,7 +170,7 @@
             grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
             gap: 1rem;
             max-width: 1200px;
-            margin: 2rem auto;
+            margin: 2px auto 2rem auto;
         }
 
         /* 单个图片项样式 */
@@ -423,11 +423,17 @@
             margin: 0;
         }
 
+        /* 图片状态容器 */
+        .image-manager-container {
+            min-height: 90px;
+            overflow: hidden;
+        }
+
         /* 选择复选框 */
         .select-checkbox {
             position: absolute;
-            top: 10px;
-            left: 10px;
+            top: 5px;
+            right: 5px;
             width: 20px;
             height: 20px;
             cursor: pointer;
@@ -1104,7 +1110,7 @@
         <div class="zip-switch-container">
             <label class="zip-switch">
                 <input type="checkbox" id="zip-download-toggle" />
-                <div class="zip-slider"></div>
+                <span class="zip-slider"></span>
             </label>
             <span class="zip-switch-text"></span>
         </div>
@@ -1140,11 +1146,18 @@
         </div>
     </div>
 
-    <div class="batch-status" id="batchStatus"></div>
+    <!-- 图片状态容器 -->
+    <div class="image-manager-container">
+        <!-- 批量处理状态显示区域 -->
+        <div class="batch-status" id="batchStatus"></div>
 
-    <div class="image-counter" id="imageCounter">当前共 0 张图片</div>
+        <!-- 图片计数器：实时显示当前加载的图片总数 -->
+        <div class="image-counter" id="imageCounter">当前共 0 张图片</div>
+    </div>
 
+    <!-- 图片列表容器：以网格形式展示所有已添加的图片项 -->
     <div class="image-list" id="imageList">
+        <!-- 空状态提示：当列表无图片时显示 -->
         <div class="empty-state" id="emptyState"></div>
     </div>
 
@@ -1579,9 +1592,10 @@
                     outputBlob = blob;
                 }
 
-                // 生成文件名
+                // 生成文件名（使用 getStatusSuffix 基于 scrambleLevel）
                 const ext = targetFormat === 'jpeg' ? 'jpg' : targetFormat;
-                const fileName = `${imageData.name.replace(/\.[^/.]+$/, '')}_${imageData.status}.${ext}`;
+                const statusSuffix = getStatusSuffix(imageData.scrambleLevel);
+                const fileName = `${imageData.name.replace(/\.[^/.]+$/, '')}_${statusSuffix}.${ext}`;
 
                 // 读取为 Uint8Array 供 fflate 使用
                 const arrayBuffer = await outputBlob.arrayBuffer();
@@ -2401,6 +2415,49 @@
     }
 
     // =============================================
+    // 状态辅助函数：根据 scrambleLevel 生成显示文本和CSS类名
+    // =============================================
+    
+    /**
+     * 根据混淆级别获取状态文本
+     * @param {number} level - 混淆级别（正数表示混淆次数，负数表示解混淆次数，0表示原始）
+     * @returns {string} 状态文本
+     */
+    function getStatusText(level) {
+        if (level === 0) return '原始图片';
+        if (level > 0) {
+            return level === 1 ? '已混淆' : `已${level}次混淆`;
+        }
+        const absLevel = Math.abs(level);
+        return absLevel === 1 ? '已解混淆' : `已${absLevel}次解混淆`;
+    }
+    
+    /**
+     * 根据混淆级别获取状态徽章的CSS类名
+     * @param {number} level - 混淆级别
+     * @returns {string} CSS类名
+     */
+    function getStatusClass(level) {
+        if (level === 0) return 'status-original';
+        if (level > 0) return 'status-encrypted';
+        return 'status-decrypted';
+    }
+    
+    /**
+     * 根据混淆级别生成文件名后缀（用于保存图片时的文件名）
+     * @param {number} level - 混淆级别
+     * @returns {string} 后缀字符串
+     */
+    function getStatusSuffix(level) {
+        if (level === 0) return 'original';
+        if (level > 0) {
+            return level === 1 ? 'encrypted' : `encrypted_${level}`;
+        }
+        const absLevel = Math.abs(level);
+        return absLevel === 1 ? 'decrypted' : `decrypted_${absLevel}`;
+    }
+    
+    // =============================================
     // 图片处理核心函数
     // =============================================
     /**
@@ -2446,17 +2503,20 @@
                 const newIdx = curve[(i + offset) % totalPixels];
                 dstU32[newIdx] = srcU32[oldIdx];
             }
-            imageData.status = 'encrypted';
+            // 混淆级别 +1
+            imageData.scrambleLevel = (imageData.scrambleLevel || 0) + 1;
         } else if (operation === 'decrypt') {
             for (let i = 0; i < totalPixels; i++) {
                 const oldIdx = curve[i];
                 const newIdx = curve[(i + offset) % totalPixels];
                 dstU32[oldIdx] = srcU32[newIdx];
             }
-            imageData.status = 'decrypted';
+            // 解混淆级别 -1
+            imageData.scrambleLevel = (imageData.scrambleLevel || 0) - 1;
         } else if (operation === 'restore') {
             dstBuffer.set(imgData.data);
-            imageData.status = 'original';
+            // 还原操作：重置混淆级别为 0
+            imageData.scrambleLevel = 0;
         }
 
         // 写回 canvas
@@ -2706,7 +2766,8 @@
         if (isSame) {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.download = `${imageData.name.replace(/\.[^/.]+$/, '')}_${imageData.status}.${targetFormat === 'jpeg' ? 'jpg' : targetFormat}`;
+            const statusSuffix = getStatusSuffix(imageData.scrambleLevel);
+            a.download = `${imageData.name.replace(/\.[^/.]+$/, '')}_${statusSuffix}.${targetFormat === 'jpeg' ? 'jpg' : targetFormat}`;
             a.href = url;
             document.body.appendChild(a);
             a.click();
@@ -2742,7 +2803,8 @@
         const url = URL.createObjectURL(outputBlob);
         const a = document.createElement('a');
         const ext = format === 'jpeg' ? 'jpg' : format;
-        a.download = `${imageData.name.replace(/\.[^/.]+$/, '')}_${imageData.status}.${ext}`;
+        const statusSuffix = getStatusSuffix(imageData.scrambleLevel);
+        a.download = `${imageData.name.replace(/\.[^/.]+$/, '')}_${statusSuffix}.${ext}`;
         a.href = url;
         document.body.appendChild(a);
         a.click();
@@ -2816,8 +2878,8 @@
             id,
             name: file.name,
             originalName: file.name,
-            status: 'original',
-            size: blob.size,  // 注意：如果是回退转换，文件大小可能变化
+            scrambleLevel: 0,          // 新增：混淆级别，0=原始，正数=混淆次数，负数=解混淆次数
+            size: blob.size,
             width: width,
             height: height,
             naturalWidth: width,
@@ -2867,6 +2929,10 @@
         canvas.style.objectFit = 'contain';
         thumbnailContainer.appendChild(canvas);
     
+        // 获取当前状态文本和CSS类
+        const statusText = getStatusText(imageData.scrambleLevel);
+        const statusClass = getStatusClass(imageData.scrambleLevel);
+    
         // 设置图片项内容（使用 HTML 转义防止 XSS）
         item.innerHTML = `
         <input type="checkbox" class="select-checkbox">
@@ -2876,7 +2942,7 @@
                 <span>${imageData.width > 0 ? `${imageData.width}×${imageData.height}` : '<span style="color:#999;">尺寸未知</span>'}</span>
             </div>
             <div class="file-size">格式：${imageData.format || 'N/A'} | ${formatFileSize(imageData.size)}</div>
-            <div class="status-badge status-${imageData.status || 'original'}">${imageData.status === 'original' ? '原始图片' : imageData.status === 'encrypted' ? '已混淆' : '已解混淆'}</div>
+            <div class="status-badge ${statusClass}">${statusText}</div>
         </div>
         <div class="image-actions">
             <button class="action-btn" data-operation="encrypt">混淆</button>
@@ -2995,17 +3061,18 @@
                 infoDiv.insertBefore(newFileSizeDiv, targetElementForFileSize.nextSibling);
             }
                 
-            // 更新状态徽章
-            const statusBadge = infoDiv.querySelector('.status-badge');
+            // 更新状态徽章（基于 scrambleLevel）
+            let statusBadge = infoDiv.querySelector('.status-badge');
+            const newStatusText = getStatusText(imageData.scrambleLevel);
+            const newStatusClass = getStatusClass(imageData.scrambleLevel);
+            
             if (statusBadge) {
-                statusBadge.className = `status-badge status-${imageData.status}`;
-                statusBadge.textContent = imageData.status === 'original' ? '原始图片' :
-                                         imageData.status === 'encrypted' ? '已混淆' : '已解混淆';
+                statusBadge.className = `status-badge ${newStatusClass}`;
+                statusBadge.textContent = newStatusText;
             } else {
                 const newStatusBadge = document.createElement('div');
-                newStatusBadge.className = `status-badge status-${imageData.status}`;
-                newStatusBadge.textContent = imageData.status === 'original' ? '原始图片' :
-                                            imageData.status === 'encrypted' ? '已混淆' : '已解混淆';
+                newStatusBadge.className = `status-badge ${newStatusClass}`;
+                newStatusBadge.textContent = newStatusText;
                 infoDiv.appendChild(newStatusBadge);
             }
         }
