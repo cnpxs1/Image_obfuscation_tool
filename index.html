@@ -24,9 +24,15 @@
             const script = document.createElement('script');
             script.src = cdnUrl;
             script.onload = () => {
-                window.fflateResources.loaded = true;
-                window.fflateResources.loading = false;
-                console.log('fflate 加载成功:', cdnUrl);
+                if (typeof fflate !== 'undefined') {
+                    window.fflateResources.loaded = true;
+                    window.fflateResources.loading = false;
+                    console.log('fflate 加载成功:', cdnUrl);
+                } else {
+                    console.warn('fflate 脚本加载但未定义，视为失败');
+                    window.fflateResources.loading = false;
+                    script.onerror(new Error('fflate is not defined'));
+                }
             };
             script.onerror = () => {
                 console.warn('fflate 加载失败:', cdnUrl);
