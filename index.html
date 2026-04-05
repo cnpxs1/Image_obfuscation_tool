@@ -1433,8 +1433,16 @@
                 if (!baseName) continue;
 
                 try {
+                    // MIME 类型映射表
+                    const mimeMap = {
+                        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+                        gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+                        tiff: 'image/tiff', svg: 'image/svg+xml'
+                    };
+                    const mime = mimeMap[ext] || 'application/octet-stream';
+                    
                     // 创建 Blob 并转换为 File 对象
-                    const blob = new Blob([fileData], { type: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
+                    const blob = new Blob([fileData], { type: mime });
                     const file = new File([blob], baseName, { type: blob.type });
                     imageFiles.push(file);
                 } catch (e) {
