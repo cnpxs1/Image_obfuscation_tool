@@ -24,9 +24,15 @@
             const script = document.createElement('script');
             script.src = cdnUrl;
             script.onload = () => {
-                window.fflateResources.loaded = true;
-                window.fflateResources.loading = false;
-                console.log('fflate 加载成功:', cdnUrl);
+                if (typeof fflate !== 'undefined') {
+                    window.fflateResources.loaded = true;
+                    window.fflateResources.loading = false;
+                    console.log('fflate 加载成功:', cdnUrl);
+                } else {
+                    console.warn('fflate 脚本加载但未定义，视为失败');
+                    window.fflateResources.loading = false;
+                    script.onerror(new Error('fflate is not defined'));
+                }
             };
             script.onerror = () => {
                 console.warn('fflate 加载失败:', cdnUrl);
@@ -1240,34 +1246,12 @@
     
     /**
      * 清理所有图片资源
-     * 在页面卸载时调用，确保所有Blob URL都被释放
+     * 在页面卸载时调用
      */
     function cleanupAllImageResources() {
-        try {
-            let cleanupCount = 0;
-            
-            // 遍历所有图片数据并调用cleanup方法
-            images.forEach(imageData => {
-                if (typeof imageData.cleanup === 'function') {
-                    imageData.cleanup();
-                    cleanupCount++;
-                } else {
-                    // 兼容旧版本的数据结构
-                    if (imageData.originalBlobUrl && imageData.originalBlobUrl.startsWith('blob:')) {
-                        URL.revokeObjectURL(imageData.originalBlobUrl);
-                        cleanupCount++;
-                    }
-                    if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
-                        URL.revokeObjectURL(imageData.blobUrl);
-                        cleanupCount++;
-                    }
-                }
-            });
-            
-            console.log(`页面卸载：已清理 ${cleanupCount} 个图片资源`);
-        } catch (error) {
-            console.error('图片资源清理失败:', error);
-        }
+        // StorageAdapter 中的数据会在页面关闭时自动被浏览器回收
+        // 无需额外清理 Blob URL（当前未创建长期 URL）
+        console.log('页面卸载：所有图片资源将由浏览器自动回收');
     }
     
     // =============================================
@@ -1455,8 +1439,16 @@
                 if (!baseName) continue;
 
                 try {
+                    // MIME 类型映射表
+                    const mimeMap = {
+                        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+                        gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+                        tiff: 'image/tiff', svg: 'image/svg+xml'
+                    };
+                    const mime = mimeMap[ext] || 'application/octet-stream';
+                    
                     // 创建 Blob 并转换为 File 对象
-                    const blob = new Blob([fileData], { type: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
+                    const blob = new Blob([fileData], { type: mime });
                     const file = new File([blob], baseName, { type: blob.type });
                     imageFiles.push(file);
                 } catch (e) {
@@ -1532,6 +1524,9 @@
         const statusDiv = document.getElementById('batchStatus');
         statusDiv.innerHTML = `<div class="loading"></div> 正在准备打包 ${targetIds.length} 张图片...`;
 
+        // 提前检测 WebP 支持（避免循环内重复 await）
+        const webpSupported = format.toLowerCase() === 'webp' ? await isWebPSupported() : false;
+
         // 收集所有图片 Blob 并转换为目标格式
         const filesToZip = [];
         let successCount = 0;
@@ -1574,7 +1569,7 @@
                     } else if (targetFormat === 'jpg' || targetFormat === 'jpeg') {
                         outputBlob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.95));
                     } else if (targetFormat === 'webp') {
-                        if (!(await isWebPSupported())) throw new Error('浏览器不支持 WebP');
+                        if (!webpSupported) throw new Error('浏览器不支持 WebP');
                         outputBlob = await new Promise(r => canvas.toBlob(r, 'image/webp', 0.95));
                     } else {
                         outputBlob = blob;
@@ -1625,9 +1620,9 @@
                 zipObj[file.name] = file.data;
             }
 
-            // 压缩为 ZIP
+            // 压缩为 ZIP (level: 1 - 最快压缩)
             const zipData = await new Promise((resolve, reject) => {
-                fflate.zip(zipObj, (err, data) => {
+                fflate.zip(zipObj, { level: 1 }, (err, data) => {
                     if (err) reject(err);
                     else resolve(data);
                 });
@@ -3172,21 +3167,6 @@
             }
         });
             
-        // 清理选中图片的 Blob URL 资源
-        imagesToDelete.forEach(imageData => {
-            if (typeof imageData.cleanup === 'function') {
-                imageData.cleanup();
-            } else {
-                // 兼容旧版本
-                if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(imageData.blobUrl);
-                }
-                if (imageData.originalBlobUrl && imageData.originalBlobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(imageData.originalBlobUrl);
-                }
-            }
-        });
-            
         // 重置选择状态
         selectedImages.clear();
             
@@ -3231,22 +3211,6 @@
             const item = document.querySelector(`[data-id="${imageId}"]`);
             if (item) {
                 item.remove();
-            }
-            
-            // 使用新的cleanup方法释放所有Blob URL资源
-            if (typeof imageData.cleanup === 'function') {
-                imageData.cleanup();
-            } else {
-                // 兼容旧版本的清理逻辑
-                if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(imageData.blobUrl);
-                    console.log('已释放处理后Blob URL:', imageData.blobUrl);
-                }
-                
-                if (imageData.originalBlobUrl && imageData.originalBlobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(imageData.originalBlobUrl);
-                    console.log('已释放原始Blob URL:', imageData.originalBlobUrl);
-                }
             }
             
             // 从数组中移除图片数据
