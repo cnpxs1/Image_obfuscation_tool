@@ -5,9 +5,57 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>图片混淆工具</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-    <!-- Viewer.js CSS 智能加载 | 许可证：MIT License（详见页面底部「开源许可证」入口）-->
+    <!-- Viewer.js CSS 智能加载 | 许可证：MIT License -->
     <!-- 第一级：bootcdn CSS -->
     <link id="viewer-css" href="https://cdn.bootcdn.net/ajax/libs/viewerjs/1.11.7/viewer.min.css" rel="stylesheet" onload="if(window.viewerResources){window.viewerResources.cssLoaded=true; window.viewerResources.currentCDN='bootcdn'}" onerror="loadCDNFallback('css', 'bootcdn')">
+    <!-- fflate 库智能加载 - ZIP 压缩/解压 | 许可证：MIT License -->
+    <script>
+        // fflate 资源加载状态
+        window.fflateResources = {
+            loaded: false,
+            loading: false,
+            failed: false
+        };
+        
+        function loadFflate(cdnUrl, fallbackUrls, index = 0) {
+            if (window.fflateResources.loaded || window.fflateResources.loading) return;
+            window.fflateResources.loading = true;
+            
+            const script = document.createElement('script');
+            script.src = cdnUrl;
+            script.onload = () => {
+                window.fflateResources.loaded = true;
+                window.fflateResources.loading = false;
+                console.log('fflate 加载成功:', cdnUrl);
+            };
+            script.onerror = () => {
+                console.warn('fflate 加载失败:', cdnUrl);
+                window.fflateResources.loading = false;
+                if (index < fallbackUrls.length) {
+                    loadFflate(fallbackUrls[index], fallbackUrls, index + 1);
+                } else {
+                    window.fflateResources.failed = true;
+                    console.error('fflate 所有源均加载失败，ZIP 功能将不可用');
+                    // 禁用 ZIP 下载开关
+                    const zipToggle = document.getElementById('zip-download-toggle');
+                    if (zipToggle) {
+                        zipToggle.disabled = true;
+                        zipToggle.title = 'fflate 库加载失败，ZIP 功能不可用';
+                    }
+                }
+            };
+            document.head.appendChild(script);
+        }
+
+        // 优先级：jsDelivr -> unpkg -> 本地
+        loadFflate(
+            'https://fastly.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js',
+            [
+                'https://unpkg.com/fflate@0.8.2/umd/index.js',
+                './assets/fflate/fflate.js'
+            ]
+        );
+    </script>
     <!--
     图片混淆工具 - 基于希尔伯特曲线的图片混淆算法
     功能：支持图片的混淆、解混淆、还原操作，保持像素空间相关性
@@ -196,9 +244,78 @@
             display: flex;
             gap: 0.3rem;
             flex-wrap: nowrap;
-            width: calc(180px + 0.6rem); /* 3个按钮宽度(60px*3) + 2个间隙(0.3rem*2) */
+            width: calc(180px + 0.6rem); /* 3 个按钮宽度 (60px*3) + 2 个间隙 (0.3rem*2) */
         }
-
+        
+        /* ZIP 下载切换开关样式 */
+        .zip-switch-container {
+            display: inline-flex; /* 行内弹性布局 */
+            align-items: center; /* 垂直居中对齐 */
+            justify-content: center; /* 两端对齐 */
+            height: 2rem; /* 容器高度 */
+            padding: 0 0; /* 内边距 */
+            margin: 0.3rem; /* 外边距 */
+            border: 2px solid #c8c8c8; /* 边框样式 */
+            border-radius: 6px; /* 圆角半径 */
+            background: #fff; /* 背景颜色 */
+            gap: 0.5rem; /* 子元素间距 */
+            box-sizing: border-box; /* 盒模型计算方式 */
+            transition: border-color 0s; /* 边框颜色过渡效果 */
+        }
+        .zip-switch-container:has(input:checked) {
+            border-color: #78c878; /* 开启状态边框颜色 */
+        }
+        .zip-switch-text::before {
+            content: "逐个下载"; /* 关闭状态文本 */
+            margin-right: 0.5rem; /* 文字右侧间距 */
+            position: relative;
+            top: -1px;
+        }
+        .zip-switch-container:has(input:checked) .zip-switch-text::before {
+            content: "打包下载"; /* 开启状态文本 */
+            margin-right: 0.5rem; /* 文字右侧间距 */
+            position: relative;
+            top: -1px;
+        }
+        .zip-switch {
+            width: 4rem; /* 开关宽度 */
+            height: calc(2rem - 4px); /* 开关高度 */
+            margin: 0; /* 外边距 */
+            border-radius: 4px; /* 圆角半径 */
+            display: block; /* 块级元素 */
+            position: relative; /* 相对定位，为子元素绝对定位提供参考 */
+            cursor: pointer; /* 鼠标悬停时显示手型指针 */
+            background: #b4b4b4; /* 关闭状态背景色 */
+            overflow: hidden; /* 隐藏超出边界的内容 */
+            transition: 0.3s; /* 过渡效果时长 */
+            flex-shrink: 0;
+        }
+        .zip-switch input {
+            opacity: 0; /* 隐藏原始复选框 */
+            position: absolute; /* 绝对定位 */
+        }
+        .zip-slider { /* 滑动轨道背景 */
+            position: absolute; /* 绝对定位填充整个开关 */
+            inset: 0; /* 上下左右均为 0，等同于 top:0; right:0; bottom:0; left:0; */
+        }
+        .zip-slider::before { /* 滑动按钮（伪元素） */
+            content: ""; /* 伪元素必需属性 */
+            position: absolute; /* 绝对定位 */
+            left: 0.25rem; /* 默认位置：左侧 */
+            top: 50%; /* 垂直居中 */
+            transform: translateY(-50%); /* 修正垂直居中偏移 */
+            width: calc(1.5rem - 2px); /* 滑块宽度 */
+            height: calc(1.5rem - 2px); /* 滑块高度 */
+            border-radius: 4px; /* 滑块圆角 */
+            background: #fff; /* 滑块颜色（白色） */
+            transition: 0.3s; /* 滑动过渡效果 */
+        }
+        .zip-switch input:checked + .zip-slider { /* 选中状态时的轨道背景 */
+            background: #4caf50; /* 激活背景色 */
+        }
+        .zip-switch input:checked + .zip-slider::before { /* 选中状态时的滑块位置 */
+            transform: translate(calc(2rem + 2px), -50%); /* 向右滑动calc(2rem + 2px)，保持垂直居中 */
+        }
         /* 删除和保存按钮平均分配空间 */
         .action-group .action-btn {
             flex: 1;
@@ -977,6 +1094,14 @@
     </div>
 
     <div class="controls-section" style="gap: 0;">
+        <!-- fflate 打包下载开关 -->
+        <div class="zip-switch-container">
+            <label class="zip-switch">
+                <input type="checkbox" id="zip-download-toggle" />
+                <div class="zip-slider"></div>
+            </label>
+            <span class="zip-switch-text"></span>
+        </div>
         <label for="save-format-select" class="normal_button" style="background-color: #4CAF50;color:#fff;display:inline-flex;align-items:center;justify-content:center;height:2rem;font-size:1rem;padding:0 0.5rem;margin:0.3rem;border:0;border-radius:6px;cursor:pointer;">保存格式:
             <select id="save-format-select" style="margin-left:0.3rem;background-color:white;color:#333;height:1.5rem;border:1px solid #ccc;border-radius:4px;padding:0 0.2rem;font-size:0.9rem;cursor:pointer;">
                 <option value="png">PNG</option>
@@ -992,7 +1117,7 @@
             <p style="margin-bottom: 0.5rem;">拖拽图片文件到这里，或点击选择文件</p>
             <p style="font-size: 0.9rem; color: #666; margin-top: 0; margin-bottom: 0.25rem;">支持多个文件批量处理</p>
             <span class="normal_button" style="background-color: #ffbb00;color:#ffffff;display:inline-block; pointer-events: none; width: 85px; height: 38px; line-height: 38px; font-size: 19px;">
-                添加图片<input type="file" accept="image/*" id="add-images" class="ipt_btn" multiple style="pointer-events: none;" />
+                添加图片<input type="file" accept="image/*,.zip" id="add-images" class="ipt_btn" multiple style="pointer-events: none;" />
             </span>
         </div>
     </div>
@@ -1277,7 +1402,260 @@
             }
         }
     }
-    
+
+    // ==================== ZIP 文件处理功能 ====================
+
+    /**
+     * 解压 ZIP 文件并添加其中的图片
+     * @param {File} zipFile - ZIP 文件对象
+     * @returns {Promise<{added: number, errors: Array}>}
+     */
+    async function extractZipAndAddImages(zipFile) {
+        // 防御性检测：检查 fflate 是否可用
+        if (typeof fflate === 'undefined') {
+            console.error('fflate 未加载，ZIP 解压功能不可用');
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = '❌ ZIP 解压功能不可用（fflate 库未加载）';
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+            logError(zipFile.name, 'ZIP 解压失败: fflate 库未加载');
+            return { added: 0, errors: [{ name: zipFile.name, error: 'fflate 库未加载' }] };
+        }
+        
+        const statusDiv = document.getElementById('batchStatus');
+        statusDiv.innerHTML = `<div class="loading"></div> 正在解析 ZIP 文件...`;
+
+        try {
+            // 读取 ZIP 文件为 Uint8Array
+            const arrayBuffer = await zipFile.arrayBuffer();
+            const zipData = new Uint8Array(arrayBuffer);
+
+            // 使用 fflate 解压
+            const unzipped = await new Promise((resolve, reject) => {
+                fflate.unzip(zipData, (err, data) => {
+                    if (err) reject(err);
+                    else resolve(data);
+                });
+            });
+
+            const imageFiles = [];
+            const errors = [];
+
+            // 遍历 ZIP 中的所有文件
+            for (const [filename, fileData] of Object.entries(unzipped)) {
+                // 跳过目录（以 / 结尾的条目）
+                if (filename.endsWith('/')) continue;
+
+                // 检查是否为图片文件（扩展名）
+                const ext = filename.split('.').pop()?.toLowerCase();
+                const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'svg'];
+                if (!imageExts.includes(ext)) continue;
+
+                // 提取文件名（去掉路径前缀）
+                const baseName = filename.split('/').pop();
+                if (!baseName) continue;
+
+                try {
+                    // 创建 Blob 并转换为 File 对象
+                    const blob = new Blob([fileData], { type: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
+                    const file = new File([blob], baseName, { type: blob.type });
+                    imageFiles.push(file);
+                } catch (e) {
+                    errors.push({ name: baseName, error: e.message });
+                    logError(baseName, `ZIP 解压提取失败: ${e.message}`);
+                }
+            }
+
+            if (imageFiles.length === 0) {
+                statusDiv.innerHTML = '⚠️ ZIP 文件中未找到支持的图片格式';
+                setTimeout(() => statusDiv.innerHTML = '', 3000);
+                return { added: 0, errors };
+            }
+
+            statusDiv.innerHTML = `<div class="loading"></div> 正在添加 ${imageFiles.length} 张图片...`;
+
+            // 逐个添加图片
+            let added = 0;
+            for (let i = 0; i < imageFiles.length; i++) {
+                try {
+                    await addImage(imageFiles[i]);
+                    added++;
+                    // 更新进度
+                    const progress = Math.round((i + 1) / imageFiles.length * 100);
+                    statusDiv.innerHTML = `正在添加图片 ${i + 1}/${imageFiles.length} (${progress}%)<div class="progress-bar"><div class="progress-fill" style="width: ${progress}%"></div></div>`;
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                } catch (e) {
+                    errors.push({ name: imageFiles[i].name, error: e.message });
+                    logError(imageFiles[i].name, `添加失败: ${e.message}`);
+                }
+            }
+
+            statusDiv.innerHTML = `✅ 已从 ZIP 添加 ${added} 张图片${errors.length ? `，${errors.length} 个文件失败` : ''}`;
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+
+            return { added, errors };
+
+        } catch (error) {
+            console.error('ZIP 解压失败:', error);
+            statusDiv.innerHTML = `❌ ZIP 解压失败: ${error.message}`;
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+            logError(zipFile.name, `ZIP 解压失败: ${error.message}`);
+            return { added: 0, errors: [{ name: zipFile.name, error: error.message }] };
+        }
+    }
+
+    /**
+     * 打包下载选中的图片为 ZIP 文件
+     * @param {string} format - 保存格式：'png'|'jpg'|'bmp'|'webp'
+     * @returns {Promise<void>}
+     */
+    async function saveImagesAsZip(format) {
+        // 防御性检测：检查 fflate 是否可用
+        if (typeof fflate === 'undefined') {
+            console.error('fflate 未加载，ZIP 打包功能不可用');
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = '❌ ZIP 打包功能不可用（fflate 库未加载）';
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+            return;
+        }
+        
+        const targetIds = selectedImages.size > 0
+            ? Array.from(selectedImages)
+            : images.map(img => img.id);
+
+        if (targetIds.length === 0) {
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = '⚠️ 请先选择图片';
+            setTimeout(() => statusDiv.innerHTML = '', 2000);
+            return;
+        }
+
+        const statusDiv = document.getElementById('batchStatus');
+        statusDiv.innerHTML = `<div class="loading"></div> 正在准备打包 ${targetIds.length} 张图片...`;
+
+        // 收集所有图片 Blob 并转换为目标格式
+        const filesToZip = [];
+        let successCount = 0;
+        let failureCount = 0;
+
+        for (let i = 0; i < targetIds.length; i++) {
+            const imageId = targetIds[i];
+            const imageData = images.find(img => img.id === imageId);
+            if (!imageData) {
+                failureCount++;
+                continue;
+            }
+
+            try {
+                // 获取当前图片 Blob
+                const blob = await storage.get(`current_${imageData.id}`);
+                if (!blob) throw new Error('图片数据不存在');
+
+                let outputBlob;
+                const targetFormat = format.toLowerCase();
+                const currentType = blob.type;
+                const needConvert = !(currentType === `image/${targetFormat}` ||
+                    (targetFormat === 'jpg' && currentType === 'image/jpeg') ||
+                    (targetFormat === 'jpeg' && currentType === 'image/jpg'));
+
+                if (needConvert) {
+                    // 需要转换格式
+                    const bitmap = await createImageBitmap(blob);
+                    const canvas = getCanvasFromPool(bitmap.width, bitmap.height);
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(bitmap, 0, 0);
+                    bitmap.close();
+
+                    if (targetFormat === 'png') {
+                        outputBlob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+                    } else if (targetFormat === 'bmp') {
+                        const bmpData = await canvasToBMPAsync(canvas);
+                        outputBlob = new Blob([bmpData], { type: 'image/bmp' });
+                    } else if (targetFormat === 'jpg' || targetFormat === 'jpeg') {
+                        outputBlob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.95));
+                    } else if (targetFormat === 'webp') {
+                        if (!(await isWebPSupported())) throw new Error('浏览器不支持 WebP');
+                        outputBlob = await new Promise(r => canvas.toBlob(r, 'image/webp', 0.95));
+                    } else {
+                        outputBlob = blob;
+                    }
+                    releaseCanvasToPool(canvas);
+                } else {
+                    outputBlob = blob;
+                }
+
+                // 生成文件名
+                const ext = targetFormat === 'jpeg' ? 'jpg' : targetFormat;
+                const fileName = `${imageData.name.replace(/\.[^/.]+$/, '')}_${imageData.status}.${ext}`;
+
+                // 读取为 Uint8Array 供 fflate 使用
+                const arrayBuffer = await outputBlob.arrayBuffer();
+                filesToZip.push({
+                    name: fileName,
+                    data: new Uint8Array(arrayBuffer)
+                });
+                successCount++;
+
+                // 更新进度
+                const progress = Math.round((i + 1) / targetIds.length * 100);
+                statusDiv.innerHTML = `正在处理 ${i + 1}/${targetIds.length} (${progress}%)<div class="progress-bar"><div class="progress-fill" style="width: ${progress}%"></div></div>`;
+                await new Promise(resolve => setTimeout(resolve, 0));
+
+            } catch (error) {
+                console.error(`打包图片失败: ${imageData.name}`, error);
+                failureCount++;
+                logError(imageData.name, `打包失败: ${error.message || '未知错误'}`);
+            }
+        }
+
+        if (successCount === 0) {
+            statusDiv.innerHTML = `❌ 打包失败，没有可用的图片`;
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+            return;
+        }
+
+        // 使用 fflate 创建 ZIP
+        statusDiv.innerHTML = `<div class="loading"></div> 正在创建 ZIP 文件...`;
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        try {
+            // 构建 zip 数据对象
+            const zipObj = {};
+            for (const file of filesToZip) {
+                zipObj[file.name] = file.data;
+            }
+
+            // 压缩为 ZIP
+            const zipData = await new Promise((resolve, reject) => {
+                fflate.zip(zipObj, (err, data) => {
+                    if (err) reject(err);
+                    else resolve(data);
+                });
+            });
+
+            // 下载 ZIP 文件
+            const zipBlob = new Blob([zipData], { type: 'application/zip' });
+            const url = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+            a.download = `混淆图片_${timestamp}.zip`;
+            a.href = url;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 100);
+
+            statusDiv.innerHTML = `✅ 打包完成，已下载 ${successCount} 张图片${failureCount ? `，${failureCount} 张失败` : ''}`;
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+
+        } catch (error) {
+            console.error('ZIP 创建失败:', error);
+            statusDiv.innerHTML = `❌ ZIP 创建失败: ${error.message}`;
+            setTimeout(() => statusDiv.innerHTML = '', 3000);
+            logError('ZIP打包', `创建失败: ${error.message}`);
+        }
+    }
+
     // 全局存储实例
     const storage = new StorageAdapter();
     
@@ -2251,62 +2629,69 @@
      * @returns {Promise<void>} 无返回值的Promise
      */
     async function saveImages(format) {
-        const targetIds = selectedImages.size > 0
-            ? Array.from(selectedImages)
-            : images.map(img => img.id);
-
-        if (targetIds.length === 0) {
-            const statusDiv = document.getElementById('batchStatus');
-            statusDiv.innerHTML = '⚠️ 请先选择图片';
-            setTimeout(() => statusDiv.innerHTML = '', 2000);
-            return;
-        }
-
-        // 统计成功和失败数量
-        let successCount = 0;
-        let failureCount = 0;
+        // 检查打包下载开关状态
+        const zipToggle = document.getElementById('zip-download-toggle');
+        const useZip = zipToggle ? zipToggle.checked : false;
         
-        const statusDiv = document.getElementById('batchStatus');
-        statusDiv.innerHTML = `<div class="loading"></div> 正在保存 ${targetIds.length} 张图片...`;
+        if (useZip) {
+            // 使用 ZIP 打包下载
+            await saveImagesAsZip(format);
+        } else {
+            // 原有的逐个下载逻辑
+            const targetIds = selectedImages.size > 0
+                ? Array.from(selectedImages)
+                : images.map(img => img.id);
 
-        try {
-            for (let i = 0; i < targetIds.length; i++) {
-                const imageId = targetIds[i];
-                const imageData = images.find(img => img.id === imageId);
-                if (!imageData) {
-                    failureCount++;
-                    continue;
-                }
+            if (targetIds.length === 0) {
+                const statusDiv = document.getElementById('batchStatus');
+                statusDiv.innerHTML = '️ 请先选择图片';
+                setTimeout(() => statusDiv.innerHTML = '', 2000);
+                return;
+            }
 
-                try {
-                    await saveImageInFormat(imageData, format);
-                    successCount++;
-                } catch (error) {
-                    console.error(`保存图片失败: ${imageData.name}`, error);
-                    failureCount++;
-                    // 记录错误到日志
-                    if (typeof logError !== 'undefined') {
+            let successCount = 0;
+            let failureCount = 0;
+            
+            const statusDiv = document.getElementById('batchStatus');
+            statusDiv.innerHTML = `<div class="loading"></div> 正在保存 ${targetIds.length} 张图片...`;
+
+            try {
+                for (let i = 0; i < targetIds.length; i++) {
+                    const imageId = targetIds[i];
+                    const imageData = images.find(img => img.id === imageId);
+                    if (!imageData) {
+                        failureCount++;
+                        continue;
+                    }
+
+                    try {
+                        await saveImageInFormat(imageData, format);
+                        successCount++;
+                    } catch (error) {
+                        console.error(`保存图片失败: ${imageData.name}`, error);
+                        failureCount++;
                         logError(imageData.name, `保存失败: ${error.message || '未知错误'}`);
                     }
+
+                    // 更新进度
+                    const progress = Math.round((i + 1) / targetIds.length * 100);
+                    statusDiv.innerHTML = `正在保存 ${i + 1}/${targetIds.length} (${progress}%)<div class="progress-bar"><div class="progress-fill" style="width: ${progress}%"></div></div>`;
+                    await new Promise(resolve => setTimeout(resolve, 50));
                 }
 
-                // 添加延迟防止同时下载太多文件
-                await new Promise(resolve => setTimeout(resolve, 100));
+                if (failureCount === 0) {
+                    statusDiv.innerHTML = ` 全部保存成功 (${successCount} 张)`;
+                } else if (successCount === 0) {
+                    statusDiv.innerHTML = ` 全部保存失败 (${failureCount} 张)`;
+                } else {
+                    statusDiv.innerHTML = ` 成功 ${successCount} 张， 失败 ${failureCount} 张`;
+                }
+                setTimeout(() => statusDiv.innerHTML = '', 3000);
+            } catch (error) {
+                console.error('保存失败:', error);
+                statusDiv.innerHTML = ' 保存失败';
+                setTimeout(() => statusDiv.innerHTML = '', 2000);
             }
-
-            // 根据成功和失败数量显示不同状态
-            if (failureCount === 0) {
-                statusDiv.innerHTML = `✅ 全部保存成功 (${successCount} 张)`;
-            } else if (successCount === 0) {
-                statusDiv.innerHTML = `❌ 全部保存失败 (${failureCount} 张)`;
-            } else {
-                statusDiv.innerHTML = `✅ 成功 ${successCount} 张，❌ 失败 ${failureCount} 张`;
-            }
-            setTimeout(() => statusDiv.innerHTML = '', 3000);
-        } catch (error) {
-            console.error('保存失败:', error);
-            statusDiv.innerHTML = '❌ 保存失败';
-            setTimeout(() => statusDiv.innerHTML = '', 2000);
         }
     }
 
@@ -3025,6 +3410,19 @@
         let errorCount = 0;
 
         for (const file of files) {
+            // 检查是否为 ZIP 文件
+            const isZip = file.type === 'application/zip' || 
+                          file.name.toLowerCase().endsWith('.zip');
+            
+            if (isZip) {
+                // 处理 ZIP 文件
+                const result = await extractZipAndAddImages(file);
+                addedCount += result.added;
+                errorCount += result.errors.length;
+                continue;
+            }
+            
+            // 原有图片处理逻辑
             if (!isValidImageFile(file)) {
                 logError(file.name, '不是有效的图片文件');
                 errorCount++;
@@ -3036,17 +3434,18 @@
                 addedCount++;
             } catch (error) {
                 console.error(`添加图片失败：${file.name}`, error);
+                logError(file.name, `添加失败: ${error.message || '未知错误'}`);
                 errorCount++;
             }
         }
 
         let message = '';
         if (addedCount > 0 && errorCount > 0) {
-            message = `✅ 已添加 ${addedCount} 张图片，❌ ${errorCount} 个文件被拒绝或读取失败`;
+            message = ` 已添加 ${addedCount} 张图片， ${errorCount} 个文件被拒绝或读取失败`;
         } else if (addedCount > 0) {
-            message = `✅ 已添加 ${addedCount} 张图片`;
+            message = ` 已添加 ${addedCount} 张图片`;
         } else if (errorCount > 0) {
-            message = `❌ 所有 ${errorCount} 个文件都被拒绝或读取失败`;
+            message = ` 所有 ${errorCount} 个文件都被拒绝或读取失败`;
         }
 
         if (message) {
@@ -3791,6 +4190,30 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.</div>
+        
+        <h2><a href="https://github.com/101arrowz/fflate" target="_blank">fflate</a></h2>
+        <p>8kB 超小体积，实现高性能压缩与解压缩</p>
+        <div class="license-text">MIT License
+
+Copyright (c) 2023 Arjun Barrett
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</div>
     </div>
 </body>
 </html>`;
