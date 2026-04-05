@@ -170,7 +170,7 @@
             grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
             gap: 1rem;
             max-width: 1200px;
-            margin: 2rem auto;
+            margin: 2px auto 2rem auto;
         }
 
         /* 单个图片项样式 */
@@ -421,6 +421,12 @@
             justify-content: center;
             gap: 10px;
             margin: 0;
+        }
+
+        /* 图片状态容器 */
+        .image-manager-container {
+            min-height: 90px;
+            overflow: hidden;
         }
 
         /* 选择复选框 */
@@ -1104,7 +1110,7 @@
         <div class="zip-switch-container">
             <label class="zip-switch">
                 <input type="checkbox" id="zip-download-toggle" />
-                <div class="zip-slider"></div>
+                <span class="zip-slider"></span>
             </label>
             <span class="zip-switch-text"></span>
         </div>
@@ -1140,11 +1146,18 @@
         </div>
     </div>
 
-    <div class="batch-status" id="batchStatus"></div>
+    <!-- 图片状态容器 -->
+    <div class="image-manager-container">
+        <!-- 批量处理状态显示区域 -->
+        <div class="batch-status" id="batchStatus"></div>
 
-    <div class="image-counter" id="imageCounter">当前共 0 张图片</div>
+        <!-- 图片计数器：实时显示当前加载的图片总数 -->
+        <div class="image-counter" id="imageCounter">当前共 0 张图片</div>
+    </div>
 
+    <!-- 图片列表容器：以网格形式展示所有已添加的图片项 -->
     <div class="image-list" id="imageList">
+        <!-- 空状态提示：当列表无图片时显示 -->
         <div class="empty-state" id="emptyState"></div>
     </div>
 
