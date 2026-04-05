@@ -1620,9 +1620,9 @@
                 zipObj[file.name] = file.data;
             }
 
-            // 压缩为 ZIP
+            // 压缩为 ZIP (level: 1 - 最快压缩)
             const zipData = await new Promise((resolve, reject) => {
-                fflate.zip(zipObj, (err, data) => {
+                fflate.zip(zipObj, { level: 1 }, (err, data) => {
                     if (err) reject(err);
                     else resolve(data);
                 });
