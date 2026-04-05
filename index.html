@@ -1240,34 +1240,12 @@
     
     /**
      * 清理所有图片资源
-     * 在页面卸载时调用，确保所有Blob URL都被释放
+     * 在页面卸载时调用
      */
     function cleanupAllImageResources() {
-        try {
-            let cleanupCount = 0;
-            
-            // 遍历所有图片数据并调用cleanup方法
-            images.forEach(imageData => {
-                if (typeof imageData.cleanup === 'function') {
-                    imageData.cleanup();
-                    cleanupCount++;
-                } else {
-                    // 兼容旧版本的数据结构
-                    if (imageData.originalBlobUrl && imageData.originalBlobUrl.startsWith('blob:')) {
-                        URL.revokeObjectURL(imageData.originalBlobUrl);
-                        cleanupCount++;
-                    }
-                    if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
-                        URL.revokeObjectURL(imageData.blobUrl);
-                        cleanupCount++;
-                    }
-                }
-            });
-            
-            console.log(`页面卸载：已清理 ${cleanupCount} 个图片资源`);
-        } catch (error) {
-            console.error('图片资源清理失败:', error);
-        }
+        // StorageAdapter 中的数据会在页面关闭时自动被浏览器回收
+        // 无需额外清理 Blob URL（当前未创建长期 URL）
+        console.log('页面卸载：所有图片资源将由浏览器自动回收');
     }
     
     // =============================================
@@ -3172,21 +3150,6 @@
             }
         });
             
-        // 清理选中图片的 Blob URL 资源
-        imagesToDelete.forEach(imageData => {
-            if (typeof imageData.cleanup === 'function') {
-                imageData.cleanup();
-            } else {
-                // 兼容旧版本
-                if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(imageData.blobUrl);
-                }
-                if (imageData.originalBlobUrl && imageData.originalBlobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(imageData.originalBlobUrl);
-                }
-            }
-        });
-            
         // 重置选择状态
         selectedImages.clear();
             
@@ -3231,22 +3194,6 @@
             const item = document.querySelector(`[data-id="${imageId}"]`);
             if (item) {
                 item.remove();
-            }
-            
-            // 使用新的cleanup方法释放所有Blob URL资源
-            if (typeof imageData.cleanup === 'function') {
-                imageData.cleanup();
-            } else {
-                // 兼容旧版本的清理逻辑
-                if (imageData.blobUrl && imageData.blobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(imageData.blobUrl);
-                    console.log('已释放处理后Blob URL:', imageData.blobUrl);
-                }
-                
-                if (imageData.originalBlobUrl && imageData.originalBlobUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(imageData.originalBlobUrl);
-                    console.log('已释放原始Blob URL:', imageData.originalBlobUrl);
-                }
             }
             
             // 从数组中移除图片数据
